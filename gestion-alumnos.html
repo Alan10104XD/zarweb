@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gestión de Alumnos · Panel Administrativo</title>
+
+<link rel="icon" type="image/jpeg" href="assets/images/logo.jpg">
+
+<!-- Tipografías editoriales -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<!-- Estilos de la aplicación -->
+<link rel="stylesheet" href="css/styles.css">
+
+<!-- SheetJS para exportar a Excel -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+
+<body>
+
+<!-- ============================================================
+     PANTALLA DE LOGIN
+     ============================================================ -->
+<div id="login-screen" class="login-screen">
+  <div class="login-wrap">
+    <div class="login-mark">
+      <div class="login-logo">
+        <img src="assets/images/logo.jpg" alt="Logo">
+      </div>
+      <div class="login-mark-tag">Sistema Administrativo</div>
+    </div>
+
+    <form id="login-form" class="login-card" novalidate>
+      <h2>Acceso de administrador</h2>
+      <p class="login-help">Ingrese sus credenciales para continuar</p>
+
+      <div class="field">
+        <label class="field-label">Usuario</label>
+        <input id="login-user" class="input" type="text" placeholder="admin" autocomplete="username" required>
+      </div>
+
+      <div class="field">
+        <label class="field-label">Contraseña</label>
+        <div class="input-with-icon">
+          <input id="login-pass" class="input" type="password" placeholder="••••••••" autocomplete="current-password" required style="padding-right: 40px;">
+          <button type="button" id="toggle-pass" class="toggle-pass" aria-label="Mostrar contraseña">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <button type="submit" id="login-submit" class="btn btn-primary btn-block">Iniciar sesión</button>
+
+      <p class="login-demo">DEMO · usuario: <b>admin</b> · clave: <b>admin123</b></p>
+    </form>
+  </div>
+</div>
+
+<!-- ============================================================
+     DASHBOARD
+     ============================================================ -->
+<div id="dashboard" class="hidden">
+  <header class="app-header">
+    <div class="app-header-inner">
+      <div class="app-brand">
+        <div class="app-logo">
+          <img src="assets/images/logo.jpg" alt="Logo">
+        </div>
+        <div class="app-header-titles">
+          <h1>Gestión <em>de Alumnos</em></h1>
+          <span class="header-tag">Panel administrativo</span>
+        </div>
+      </div>
+      <button id="btn-logout" class="btn-logout">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        Salir
+      </button>
+    </div>
+  </header>
+
+  <main class="app-main">
+    <div class="section-head">
+      <div>
+        <p class="eyebrow" id="header-date">Resumen general</p>
+        <h2>Estado de <em>pagos</em></h2>
+      </div>
+      <div>
+        <p class="total-amount-label">Monto total registrado</p>
+        <p class="total-amount" id="stat-monto-total">Gs. 0</p>
+      </div>
+    </div>
+
+    <!-- Estadísticas -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-head">
+          <span class="stat-label">Total alumnos</span>
+          <span class="stat-icon neutral">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          </span>
+        </div>
+        <p class="stat-value" id="stat-total">0</p>
+        <p class="stat-sub">Registros activos</p>
+      </div>
+
+      <div class="stat-card danger">
+        <div class="stat-head">
+          <span class="stat-label">Vencidos</span>
+          <span class="stat-icon danger">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          </span>
+        </div>
+        <p class="stat-value" id="stat-vencidos">0</p>
+        <p class="stat-sub">Requieren atención</p>
+      </div>
+
+      <div class="stat-card warn">
+        <div class="stat-head">
+          <span class="stat-label">Por vencer</span>
+          <span class="stat-icon warn">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          </span>
+        </div>
+        <p class="stat-value" id="stat-proximos">0</p>
+        <p class="stat-sub">En los próximos 5 días</p>
+      </div>
+
+      <div class="stat-card success">
+        <div class="stat-head">
+          <span class="stat-label">Al día</span>
+          <span class="stat-icon success">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          </span>
+        </div>
+        <p class="stat-value" id="stat-al-dia">0</p>
+        <p class="stat-sub">Sin urgencias</p>
+      </div>
+    </div>
+
+    <!-- Barra de acciones -->
+    <div class="action-bar">
+      <div class="action-bar-row">
+        <div class="search-box">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input id="search-input" type="text" placeholder="Buscar por nombre, cédula o ID…">
+        </div>
+        <div class="action-buttons">
+          <button id="btn-export" class="btn btn-secondary">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Excel
+          </button>
+          <button id="btn-add" class="btn btn-primary">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Nuevo alumno
+          </button>
+        </div>
+      </div>
+
+      <div class="filter-row" id="filter-row">
+        <button class="filter-chip active" data-filter="todos">Todos <span class="count">(0)</span></button>
+        <button class="filter-chip" data-filter="vencido">Vencidos <span class="count">(0)</span></button>
+        <button class="filter-chip" data-filter="proximo">Por vencer <span class="count">(0)</span></button>
+        <button class="filter-chip" data-filter="al-dia">Al día <span class="count">(0)</span></button>
+      </div>
+    </div>
+
+    <!-- Tabla -->
+    <div class="table-wrap" id="table-wrap">
+      <!-- contenido inyectado por JS -->
+    </div>
+
+    <p class="results-footer" id="results-footer">
+      MOSTRANDO 0 DE 0 REGISTROS · LOS DATOS SE GUARDAN AUTOMÁTICAMENTE
+    </p>
+  </main>
+</div>
+
+<!-- ============================================================
+     MODAL: ALUMNO (crear/editar)
+     ============================================================ -->
+<div id="alumno-modal" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-head">
+      <div>
+        <p class="eyebrow" id="modal-eyebrow">Nuevo registro</p>
+        <h3 id="modal-title">Agregar alumno</h3>
+      </div>
+      <button class="modal-close" id="modal-close" aria-label="Cerrar">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+
+    <form id="alumno-form" class="modal-body" novalidate>
+      <input type="hidden" id="alumno-id">
+
+      <div class="field">
+        <label class="field-label">Nombre completo <span class="field-required">*</span></label>
+        <input id="alumno-nombre" class="input" type="text" placeholder="Ej: María Fernández González" maxlength="120">
+        <p class="field-error hidden" id="error-nombre">El nombre es obligatorio</p>
+      </div>
+
+      <div class="field">
+        <label class="field-label">Número de cédula <span class="opt">(opcional)</span></label>
+        <input id="alumno-cedula" class="input" type="text" placeholder="Ej: 1.234.567" maxlength="30">
+      </div>
+
+      <div class="modal-grid-2">
+        <div class="field">
+          <label class="field-label">Monto (Gs) <span class="field-required">*</span></label>
+          <input id="alumno-monto" class="input" type="number" min="0" step="any" placeholder="500000">
+          <p class="field-error hidden" id="error-monto">Ingrese un monto válido mayor a 0</p>
+        </div>
+
+        <div class="field">
+          <label class="field-label">Vencimiento <span class="field-required">*</span></label>
+          <input id="alumno-fecha" class="input" type="date">
+          <p class="field-error hidden" id="error-fecha">La fecha es obligatoria</p>
+        </div>
+      </div>
+
+      <div class="modal-foot">
+        <button type="button" id="modal-cancel" class="btn btn-secondary">Cancelar</button>
+        <button type="submit" id="modal-save" class="btn btn-primary">Crear alumno</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ============================================================
+     MODAL: CONFIRMAR ELIMINACIÓN
+     ============================================================ -->
+<div id="confirm-modal" class="modal-overlay hidden">
+  <div class="modal confirm-modal">
+    <div class="modal-body">
+      <h3>¿Eliminar alumno?</h3>
+      <p id="confirm-message">Esta acción es permanente y no se puede deshacer.</p>
+      <div class="modal-foot">
+        <button id="confirm-cancel" class="btn btn-secondary">Cancelar</button>
+        <button id="confirm-ok" class="btn btn-danger">Eliminar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Contenedor de toasts -->
+<div id="toast-container"></div>
+
+<!-- Lógica de la aplicación -->
+<script src="js/app.js"></script>
+</body>
+</html>
