@@ -1,6 +1,6 @@
 """
 Gestión de Alumnos · API
-Todo el backend en un solo archivo.
+Todo el backend en un solo archivo. Compatible con Python 3.8+.
 
 Ejecutar:
     uvicorn api:app --reload --port 8000
@@ -8,7 +8,7 @@ Ejecutar:
 
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Literal
+from typing import List, Literal, Optional, Tuple
 
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
 
     @property
-    def cors_origins_list(self) -> list[str]:
+    def cors_origins_list(self) -> List[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
 
 
@@ -85,12 +85,12 @@ class Administrador(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     usuario: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
-    nombre: Mapped[str | None] = mapped_column(String(120))
+    nombre: Mapped[Optional[str]] = mapped_column(String(120))
     activo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     creado_en: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
-    ultimo_acceso: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    ultimo_acceso: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
 
 class Alumno(Base):
@@ -99,7 +99,7 @@ class Alumno(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     nombre: Mapped[str] = mapped_column(String(120), nullable=False)
-    cedula: Mapped[str | None] = mapped_column(String(30))
+    cedula: Mapped[Optional[str]] = mapped_column(String(30))
     monto: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
     fecha_vencimiento: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     creado_en: Mapped[datetime] = mapped_column(
@@ -130,7 +130,7 @@ class TokenResponse(BaseModel):
 
 class AlumnoBase(BaseModel):
     nombre: str = Field(..., min_length=1, max_length=120)
-    cedula: str | None = Field(None, max_length=30)
+    cedula: Optional[str] = Field(None, max_length=30)
     monto: Decimal = Field(..., gt=0, max_digits=14, decimal_places=2)
     fecha_vencimiento: date
 
@@ -140,10 +140,10 @@ class AlumnoCreate(AlumnoBase):
 
 
 class AlumnoUpdate(BaseModel):
-    nombre: str | None = Field(None, min_length=1, max_length=120)
-    cedula: str | None = Field(None, max_length=30)
-    monto: Decimal | None = Field(None, gt=0, max_digits=14, decimal_places=2)
-    fecha_vencimiento: date | None = None
+    nombre: Optional[str] = Field(None, min_length=1, max_length=120)
+    cedula: Optional[str] = Field(None, max_length=30)
+    monto: Optional[Decimal] = Field(None, gt=0, max_digits=14, decimal_places=2)
+    fecha_vencimiento: Optional[date] = None
 
 
 class AlumnoOut(AlumnoBase):
@@ -179,7 +179,7 @@ def verify_password(password: str, password_hash: str) -> bool:
     return pwd_context.verify(password, password_hash)
 
 
-def create_access_token(subject: str) -> tuple[str, int]:
+def create_access_token(subject: str) -> Tuple[str, int]:
     expires_seconds = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
     expire = datetime.now(timezone.utc) + timedelta(seconds=expires_seconds)
     payload = {"sub": subject, "exp": expire}
@@ -188,7 +188,7 @@ def create_access_token(subject: str) -> tuple[str, int]:
 
 
 def get_current_admin(
-    token: str | None = Depends(oauth2_scheme),
+    token: Optional[str] = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
 ) -> Administrador:
     creds_exc = HTTPException(
@@ -200,7 +200,7 @@ def get_current_admin(
         raise creds_exc
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-        usuario: str | None = payload.get("sub")
+        usuario: Optional[str] = payload.get("sub")
         if not usuario:
             raise creds_exc
     except JWTError:
@@ -215,7 +215,7 @@ def get_current_admin(
 # ============================================================
 #   LÓGICA AUXILIAR
 # ============================================================
-def _calcular_estado(fecha_venc: date) -> tuple[EstadoPago, int]:
+def _calcular_estado(fecha_venc: date) -> Tuple[EstadoPago, int]:
     hoy = date.today()
     diff = (fecha_venc - hoy).days
     if diff < 0:
@@ -291,14 +291,14 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse
 # ============================================================
 @app.get(
     "/api/alumnos",
-    response_model=list[AlumnoOut],
+    response_model=List[AlumnoOut],
     tags=["alumnos"],
     dependencies=[Depends(get_current_admin)],
 )
 def listar_alumnos(
     db: Session = Depends(get_db),
-    search: str | None = Query(None, description="Buscar por nombre, cédula o ID"),
-    estado: EstadoPago | None = Query(None, description="Filtrar por estado de pago"),
+    search: Optional[str] = Query(None, description="Buscar por nombre, cédula o ID"),
+    estado: Optional[EstadoPago] = Query(None, description="Filtrar por estado de pago"),
 ):
     q = db.query(Alumno)
 

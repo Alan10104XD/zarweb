@@ -1,7 +1,11 @@
 /* ============================================================
    CONFIGURACIÓN
    ============================================================ */
-const API_URL = 'http://localhost:8000';
+const API_URL = "http://137.131.147.202:8000";
+
+fetch(`${API_URL}/tu-endpoint`)
+  .then(res => res.json())
+  .then(data => console.log(data));
 const DIAS_PROXIMO_VENCER = 5;
 
 const KEY_TOKEN = 'app_token';
