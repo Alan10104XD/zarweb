@@ -2,10 +2,6 @@
    CONFIGURACIÓN
    ============================================================ */
 const API_URL = "http://137.131.147.202:8000";
-
-fetch(`${API_URL}/tu-endpoint`)
-  .then(res => res.json())
-  .then(data => console.log(data));
 const DIAS_PROXIMO_VENCER = 5;
 
 const KEY_TOKEN = 'app_token';
@@ -69,9 +65,13 @@ const api = {
   },
 
   login(usuario, password) {
+    const body = new URLSearchParams();
+    body.set('username', usuario);
+    body.set('password', password);
     return this.request('/api/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ usuario, password })
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString()
     });
   },
 

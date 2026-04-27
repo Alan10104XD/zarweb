@@ -12,7 +12,7 @@ from typing import List, Literal, Optional, Tuple
 
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel, ConfigDict, Field
@@ -116,11 +116,6 @@ class Alumno(Base):
 EstadoPago = Literal["vencido", "proximo", "al_dia"]
 
 
-class LoginRequest(BaseModel):
-    usuario: str = Field(..., min_length=1, max_length=64)
-    password: str = Field(..., min_length=1, max_length=128)
-
-
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
@@ -168,7 +163,7 @@ class Stats(BaseModel):
 #   SEGURIDAD (JWT + bcrypt)
 # ============================================================
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login", auto_error=False)
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
 
 def hash_password(password: str) -> str:
@@ -270,13 +265,17 @@ def health():
 #   ENDPOINTS · AUTH
 # ============================================================
 @app.post("/api/auth/login", response_model=TokenResponse, tags=["auth"])
-def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
-    admin = db.query(Administrador).filter(Administrador.usuario == payload.usuario).first()
+def login(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db),
+) -> TokenResponse:
+    admin = db.query(Administrador).filter(Administrador.usuario == form_data.username).first()
 
-    if not admin or not admin.activo or not verify_password(payload.password, admin.password_hash):
+    if not admin or not admin.activo or not verify_password(form_data.password, admin.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Usuario o contraseña incorrectos",
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
     admin.ultimo_acceso = datetime.now(timezone.utc)
