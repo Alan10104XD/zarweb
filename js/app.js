@@ -1,7 +1,7 @@
 /* ============================================================
    CONFIGURACIÓN
    ============================================================ */
-const API_URL = "http://137.131.147.202:8000";
+const API_URL = "https://api.zarpemos.online";
 const DIAS_PROXIMO_VENCER = 5;
 
 const KEY_TOKEN = 'app_token';
