@@ -738,5 +738,225 @@ main.app-main {
   .app-header .header-tag { display: none; }
   .app-logo { width: 38px; height: 38px; }
   .app-header h1 { font-size: 24px; }
-  .alumnos-table { min-width: 720px; }
+  .alumnos-table { min-width: 860px; }
+  .cuotas-summary { grid-template-columns: 1fr 1fr; }
+  .cuota-main { flex-direction: column; align-items: flex-start; }
+}
+
+/* ============================================================
+   AGREGADOS v2 — estado alumno, cuotas, secciones de form
+   ============================================================ */
+
+/* Subtítulo en header */
+.total-amount-sub {
+  font-size: 10px;
+  color: var(--muted);
+  letter-spacing: 0.05em;
+  margin-top: 4px;
+  text-align: right;
+}
+.total-amount-sub span { color: var(--success); font-weight: 600; }
+
+/* Modal ancho */
+.modal-wide { max-width: 720px; }
+
+/* Etiqueta "Pago:" / "Estado:" en filtros */
+.filter-label {
+  font-size: 10px;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 500;
+  margin-right: 8px;
+  align-self: center;
+}
+
+/* Sub-texto en celdas de tabla */
+.td-sub {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.td-contacto {
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+.td-monto.deuda { color: var(--danger); }
+
+/* Chip de estado de matrícula */
+.chip-estado {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  font-weight: 500;
+  border: 1px solid;
+}
+.chip-activo     { background: var(--navy-tint);  color: var(--navy);      border-color: var(--navy-soft); }
+.chip-suspendido { background: #fffbeb;           color: #92400e;          border-color: #fde68a; }
+.chip-retirado   { background: #f5f5f4;           color: var(--muted);     border-color: #d6d3d1; }
+.chip-egresado   { background: #ecfdf5;           color: #065f46;          border-color: #a7f3d0; }
+
+/* "Sin pendientes" badge (al-dia variant más fuerte) */
+.estado-badge.sin-pendientes {
+  background: #ecfdf5; color: #065f46; border-color: #6ee7b7;
+}
+
+/* Form: títulos de sección */
+.form-section-title {
+  font-family: var(--serif);
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--navy);
+  margin: 24px 0 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.form-section-title:first-child { margin-top: 0; }
+
+/* Help text en modales */
+.modal-help {
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--navy-tint);
+  border-left: 3px solid var(--navy);
+  padding: 12px 14px;
+  margin-bottom: 20px;
+  line-height: 1.5;
+}
+
+/* Botón pequeño */
+.btn-sm {
+  padding: 6px 12px;
+  font-size: 10px;
+  letter-spacing: 0.15em;
+}
+
+/* ============================================================
+   CUOTAS · summary y lista
+   ============================================================ */
+.cuotas-summary {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr auto;
+  gap: 16px;
+  align-items: center;
+  padding: 16px 20px;
+  background: var(--navy-tint);
+  border: 1px solid var(--navy-soft);
+  margin-bottom: 24px;
+}
+.cuotas-summary-item { display: flex; flex-direction: column; gap: 4px; }
+.cuotas-summary-label {
+  font-size: 9px;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 500;
+}
+.cuotas-summary-value {
+  font-family: var(--serif);
+  font-size: 22px;
+  font-weight: 500;
+  color: var(--ink);
+  line-height: 1;
+}
+.cuotas-summary-value.danger { color: var(--danger); }
+
+.cuotas-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cuota-item {
+  border: 1px solid var(--line);
+  background: var(--paper);
+  padding: 16px 18px;
+  border-left: 3px solid var(--ink-soft);
+  transition: border-color 0.15s, background 0.15s;
+}
+.cuota-item:hover { border-color: var(--navy-soft); }
+.cuota-item.pagada {
+  background: #f8fafc;
+  border-left-color: var(--success);
+  opacity: 0.85;
+}
+
+.cuota-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.cuota-info { flex: 1; min-width: 0; }
+.cuota-concepto {
+  font-family: var(--serif);
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--ink);
+  margin-bottom: 4px;
+}
+.cuota-meta {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.05em;
+}
+.cuota-pago-info {
+  font-size: 12px;
+  color: var(--success);
+  margin-top: 6px;
+  font-weight: 500;
+}
+.cuota-nota {
+  font-size: 12px;
+  color: var(--ink-soft);
+  margin-top: 6px;
+  font-style: italic;
+}
+
+.cuota-monto-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.cuota-monto {
+  font-family: var(--serif);
+  font-size: 22px;
+  font-weight: 500;
+  color: var(--navy);
+  line-height: 1;
+}
+
+.cuota-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-soft);
+}
+
+/* Select con la misma apariencia que .input */
+select.input {
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2327448c' stroke-width='2'%3e%3cpolyline points='6 9 12 15 18 9'/%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  padding-right: 36px;
+}
+
+textarea.input {
+  resize: vertical;
+  min-height: 60px;
+  font-family: var(--mono);
 }
