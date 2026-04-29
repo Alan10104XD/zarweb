@@ -729,18 +729,136 @@ main.app-main {
 /* ============================================================
    RESPONSIVE
    ============================================================ */
-@media (max-width: 640px) {
-  .login-mark h1 { font-size: 40px; }
-  .login-logo { width: 80px; height: 80px; }
-  .section-head h2 { font-size: 38px; }
-  .stat-value { font-size: 42px; }
-  .modal-grid-2 { grid-template-columns: 1fr; }
-  .app-header .header-tag { display: none; }
+@media (max-width: 768px) {
+  .app-main { padding: 24px 16px; }
+
+  /* Header del dashboard más compacto */
+  .app-header-inner { padding: 14px 16px; }
+  .app-header h1 { font-size: 22px; }
   .app-logo { width: 38px; height: 38px; }
-  .app-header h1 { font-size: 24px; }
+  .app-header .header-tag { display: none; }
+  .btn-logout {
+    padding: 8px 12px;
+    font-size: 10px;
+    letter-spacing: 0.15em;
+  }
+  .btn-logout svg { width: 12px; height: 12px; }
+
+  /* Section head: apilar y alinear izquierda */
+  .section-head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    margin-bottom: 28px;
+  }
+  .section-head h2 { font-size: 36px; }
+  .section-head .total-amount-label,
+  .section-head .total-amount,
+  .total-amount-sub { text-align: left; }
+
+  /* Stats: 2 columnas en mobile */
+  .stats-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .stat-card { padding: 16px; }
+  .stat-value { font-size: 36px; }
+  .stat-label { font-size: 9px; letter-spacing: 0.2em; }
+
+  /* Action bar: search full width, botones más compactos */
+  .action-bar { padding: 14px; }
+  .action-bar-row { flex-direction: column; align-items: stretch; }
+  .search-box { max-width: none; }
+  .action-buttons { justify-content: flex-end; }
+  .action-buttons .btn {
+    padding: 10px 12px;
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    flex: 1;
+    justify-content: center;
+  }
+
+  /* Filtros: chips más chicos, label aparte */
+  .filter-row {
+    gap: 6px;
+    padding-top: 12px;
+    margin-top: 12px;
+  }
+  .filter-label {
+    flex-basis: 100%;
+    margin-right: 0;
+    margin-bottom: 4px;
+  }
+  .filter-chip {
+    padding: 5px 10px;
+    font-size: 9px;
+    letter-spacing: 0.15em;
+  }
+
+  /* Tabla — scroll horizontal */
   .alumnos-table { min-width: 860px; }
-  .cuotas-summary { grid-template-columns: 1fr 1fr; }
-  .cuota-main { flex-direction: column; align-items: flex-start; }
+
+  /* Modales */
+  .modal-grid-2 { grid-template-columns: 1fr; gap: 0; }
+  .modal-head { padding: 18px 20px; }
+  .modal-head h3 { font-size: 22px; }
+  .modal-body { padding: 20px; }
+  .modal { margin: 8px 0; }
+  .modal-foot { flex-direction: column-reverse; gap: 8px; }
+  .modal-foot .btn { width: 100%; justify-content: center; }
+  .form-section-title { font-size: 16px; margin: 18px 0 10px; }
+
+  /* Cuotas summary — 2 columnas */
+  .cuotas-summary {
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    padding: 14px;
+  }
+  .cuotas-summary-item:last-child {
+    grid-column: 1 / -1;
+    align-items: stretch;
+  }
+  .cuotas-summary-item:last-child .btn {
+    width: 100%;
+    justify-content: center;
+  }
+  .cuotas-summary-value { font-size: 18px; }
+
+  /* Cuota item — vertical en mobile */
+  .cuota-item { padding: 14px; }
+  .cuota-main {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .cuota-monto-block {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .cuota-actions { flex-wrap: wrap; }
+  .cuota-actions .btn { flex: 1; }
+
+  /* Login — más compacto */
+  .login-mark { margin-bottom: 32px; }
+  .login-mark h1 { font-size: 38px; }
+  .login-logo { width: 72px; height: 72px; padding: 12px; }
+  .login-card { padding: 24px 20px; }
+
+  /* Toast — full width */
+  #toast-container {
+    top: 12px;
+    right: 12px;
+    left: 12px;
+    max-width: none;
+  }
+}
+
+@media (max-width: 380px) {
+  .stats-grid { grid-template-columns: 1fr; }
+  .action-buttons .btn { font-size: 9px; padding: 9px 8px; }
+  .section-head h2 { font-size: 30px; }
+  .stat-value { font-size: 32px; }
 }
 
 /* ============================================================
