@@ -926,32 +926,199 @@ generarForm.addEventListener('submit', async (e) => {
 });
 
 /* ============================================================
-   EXPORTAR A EXCEL
+   EXPORTAR A EXCEL  (con ExcelJS — estilos completos)
    ============================================================ */
-document.getElementById('btn-export').addEventListener('click', () => {
+const NAVY = 'FF27448C';
+const NAVY_DEEP = 'FF1D3470';
+const NAVY_TINT = 'FFEEF1F9';
+const ROW_ALT = 'FFF6F7FB';
+const COLOR_DANGER_BG = 'FFFEF2F2';
+const COLOR_DANGER_FG = 'FF991B1B';
+const COLOR_WARN_BG   = 'FFFFFBEB';
+const COLOR_WARN_FG   = 'FF92400E';
+const COLOR_OK_BG     = 'FFECFDF5';
+const COLOR_OK_FG     = 'FF065F46';
+const COLOR_MUTED     = 'FF78716C';
+const FORMAT_GS       = '"Gs. "#,##0';
+
+document.getElementById('btn-export').addEventListener('click', async () => {
   if (alumnos.length === 0) { showToast('No hay alumnos para exportar', 'error'); return; }
-  const datos = alumnos.map(a => ({
-    'ID': a.id,
-    'Nombre': a.nombre,
-    'Cédula': a.cedula || '',
-    'Email': a.email || '',
-    'Teléfono': a.telefono || '',
-    'Tutor': a.tutor_nombre || '',
-    'Tel. tutor': a.tutor_telefono || '',
-    'Cuota mensual (Gs)': Number(a.monto_mensual),
-    'Estado matrícula': LABEL_ESTADO_ALUMNO[a.estado] || a.estado,
-    'Estado pago': LABEL_ESTADO_PAGO[a.estado_pago] || a.estado_pago,
-    'Cuotas vencidas': a.cuotas_vencidas,
-    'Cuotas pendientes': a.cuotas_pendientes,
-    'Deuda pendiente (Gs)': Number(a.deuda_pendiente),
-    'Próximo vencimiento': a.proximo_vencimiento ? formatearFecha(a.proximo_vencimiento) : '',
-    'Fecha de alta': a.fecha_alta ? formatearFecha(a.fecha_alta) : '',
-  }));
-  const ws = XLSX.utils.json_to_sheet(datos);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Alumnos');
-  XLSX.writeFile(wb, `alumnos_${hoyISO()}.xlsx`);
-  showToast(`Exportados ${datos.length} alumno${datos.length === 1 ? '' : 's'}`, 'success');
+
+  const btn = document.getElementById('btn-export');
+  const orig = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Generando…';
+
+  try {
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'Gestión de Alumnos';
+    wb.created = new Date();
+
+    const ws = wb.addWorksheet('Alumnos', {
+      views: [{ state: 'frozen', ySplit: 7 }],
+      properties: { defaultRowHeight: 18 },
+    });
+
+    // -------- TÍTULO --------
+    ws.mergeCells('A1:O1');
+    const tCell = ws.getCell('A1');
+    tCell.value = 'Gestión de Alumnos';
+    tCell.font = { name: 'Cambria', size: 24, bold: true, color: { argb: NAVY } };
+    tCell.alignment = { horizontal: 'left', vertical: 'middle' };
+    ws.getRow(1).height = 36;
+
+    ws.mergeCells('A2:O2');
+    const sCell = ws.getCell('A2');
+    sCell.value = `Reporte generado el ${new Date().toLocaleDateString('es-PY', { day: '2-digit', month: 'long', year: 'numeric' })}`;
+    sCell.font = { name: 'Calibri', size: 10, italic: true, color: { argb: COLOR_MUTED } };
+    sCell.alignment = { horizontal: 'left', vertical: 'middle' };
+    ws.getRow(2).height = 18;
+
+    // -------- TARJETAS DE STATS --------
+    const s = stats || { alumnos: { activos: 0, total: 0 }, pagos: { vencidos: 0, proximos: 0 }, deuda_total: 0, recaudado_mes: 0 };
+    const cards = [
+      ['A4', 'C4', 'Total alumnos',     s.alumnos.total,     null],
+      ['D4', 'F4', 'Activos',           s.alumnos.activos,   null],
+      ['G4', 'I4', 'Cuotas vencidas',   s.pagos.vencidos,    'danger'],
+      ['J4', 'L4', 'Deuda total',       Number(s.deuda_total), 'currency'],
+      ['M4', 'O4', 'Recaudado este mes', Number(s.recaudado_mes), 'currency-ok'],
+    ];
+
+    cards.forEach(([from, to, label, value, kind]) => {
+      // Label
+      ws.mergeCells(from + ':' + to);
+      const labelCell = ws.getCell(from);
+      labelCell.value = label.toUpperCase();
+      labelCell.font = { name: 'Calibri', size: 9, bold: true, color: { argb: COLOR_MUTED } };
+      labelCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      labelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: NAVY_TINT } };
+      labelCell.border = { top: { style: 'thin', color: { argb: NAVY } }, left: { style: 'thin', color: { argb: NAVY } }, right: { style: 'thin', color: { argb: NAVY } } };
+
+      // Value (one row below)
+      const fromValue = from.replace('4', '5');
+      const toValue = to.replace('4', '5');
+      ws.mergeCells(fromValue + ':' + toValue);
+      const valCell = ws.getCell(fromValue);
+      valCell.value = value;
+      let color = NAVY;
+      if (kind === 'danger') color = COLOR_DANGER_FG;
+      else if (kind === 'currency-ok') color = COLOR_OK_FG;
+      valCell.font = { name: 'Cambria', size: 18, bold: true, color: { argb: color } };
+      valCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      valCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } };
+      valCell.border = { bottom: { style: 'thin', color: { argb: NAVY } }, left: { style: 'thin', color: { argb: NAVY } }, right: { style: 'thin', color: { argb: NAVY } } };
+      if (kind === 'currency' || kind === 'currency-ok') valCell.numFmt = FORMAT_GS;
+    });
+    ws.getRow(4).height = 16;
+    ws.getRow(5).height = 28;
+
+    // -------- HEADERS DE TABLA (fila 7) --------
+    const columns = [
+      { key: 'id',                    header: 'ID',               width: 6,  align: 'center' },
+      { key: 'nombre',                header: 'Nombre',           width: 32 },
+      { key: 'cedula',                header: 'Cédula',           width: 14 },
+      { key: 'email',                 header: 'Email',            width: 28 },
+      { key: 'telefono',              header: 'Teléfono',         width: 14 },
+      { key: 'tutor_nombre',          header: 'Tutor',            width: 24 },
+      { key: 'tutor_telefono',        header: 'Tel. tutor',       width: 14 },
+      { key: 'monto_mensual',         header: 'Cuota mensual',    width: 16, format: 'currency', align: 'right' },
+      { key: 'estado_label',          header: 'Estado',           width: 13, align: 'center' },
+      { key: 'pago_label',            header: 'Estado pago',      width: 14, align: 'center' },
+      { key: 'cuotas_vencidas',       header: 'Cuotas venc.',     width: 11, align: 'center' },
+      { key: 'cuotas_pendientes',     header: 'Cuotas pend.',     width: 11, align: 'center' },
+      { key: 'deuda_pendiente',       header: 'Deuda',            width: 16, format: 'currency', align: 'right' },
+      { key: 'proximo_vencimiento',   header: 'Próx. venc.',      width: 14, align: 'center' },
+      { key: 'fecha_alta',            header: 'Fecha alta',       width: 14, align: 'center' },
+    ];
+
+    columns.forEach((col, i) => { ws.getColumn(i + 1).width = col.width; });
+
+    const headerRow = ws.getRow(7);
+    columns.forEach((col, i) => {
+      const cell = headerRow.getCell(i + 1);
+      cell.value = col.header;
+      cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: NAVY } };
+      cell.alignment = { horizontal: col.align || 'left', vertical: 'middle' };
+      cell.border = { bottom: { style: 'medium', color: { argb: NAVY_DEEP } } };
+    });
+    headerRow.height = 24;
+
+    // -------- DATOS --------
+    alumnos.forEach((a, idx) => {
+      const row = ws.getRow(8 + idx);
+      const values = {
+        id: a.id,
+        nombre: a.nombre,
+        cedula: a.cedula || '',
+        email: a.email || '',
+        telefono: a.telefono || '',
+        tutor_nombre: a.tutor_nombre || '',
+        tutor_telefono: a.tutor_telefono || '',
+        monto_mensual: Number(a.monto_mensual),
+        estado_label: LABEL_ESTADO_ALUMNO[a.estado] || a.estado,
+        pago_label: LABEL_ESTADO_PAGO[a.estado_pago] || a.estado_pago,
+        cuotas_vencidas: a.cuotas_vencidas,
+        cuotas_pendientes: a.cuotas_pendientes,
+        deuda_pendiente: Number(a.deuda_pendiente),
+        proximo_vencimiento: a.proximo_vencimiento ? parseFecha(a.proximo_vencimiento) : '',
+        fecha_alta: a.fecha_alta ? parseFecha(a.fecha_alta) : '',
+      };
+
+      const altRowFill = idx % 2 === 1
+        ? { type: 'pattern', pattern: 'solid', fgColor: { argb: ROW_ALT } }
+        : null;
+
+      columns.forEach((col, i) => {
+        const cell = row.getCell(i + 1);
+        cell.value = values[col.key];
+        cell.font = { name: 'Calibri', size: 10 };
+        cell.alignment = { horizontal: col.align || 'left', vertical: 'middle' };
+        if (col.format === 'currency') cell.numFmt = FORMAT_GS;
+        if (col.key === 'proximo_vencimiento' || col.key === 'fecha_alta') cell.numFmt = 'dd/mm/yyyy';
+        if (altRowFill) cell.fill = altRowFill;
+        cell.border = { bottom: { style: 'hair', color: { argb: 'FFE1E5EF' } } };
+      });
+
+      // Pintar la celda de "Estado pago" según el estado
+      const pagoCell = row.getCell(10);
+      const pagoStyle = {
+        vencido:        { bg: COLOR_DANGER_BG, fg: COLOR_DANGER_FG },
+        proximo:        { bg: COLOR_WARN_BG,   fg: COLOR_WARN_FG },
+        al_dia:         { bg: NAVY_TINT,       fg: NAVY },
+        sin_pendientes: { bg: COLOR_OK_BG,     fg: COLOR_OK_FG },
+      }[a.estado_pago];
+      if (pagoStyle) {
+        pagoCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: pagoStyle.bg } };
+        pagoCell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: pagoStyle.fg } };
+      }
+
+      // Pintar deuda en rojo si > 0
+      if (Number(a.deuda_pendiente) > 0) {
+        row.getCell(13).font = { name: 'Calibri', size: 10, bold: true, color: { argb: COLOR_DANGER_FG } };
+      }
+
+      row.height = 22;
+    });
+
+    // -------- AUTOFILTRO --------
+    ws.autoFilter = { from: { row: 7, column: 1 }, to: { row: 7, column: columns.length } };
+
+    // -------- DESCARGAR --------
+    const buf = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `alumnos_${hoyISO()}.xlsx`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    showToast(`Exportados ${alumnos.length} alumno${alumnos.length === 1 ? '' : 's'}`, 'success');
+  } catch (err) {
+    showToast('Error al generar el archivo: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = orig;
+  }
 });
 
 /* ============================================================
