@@ -107,6 +107,23 @@ function formatearFecha(str) {
 function formatearMonto(monto) {
   return new Intl.NumberFormat('es-PY', { style: 'currency', currency: 'PYG', minimumFractionDigits: 0 }).format(Number(monto) || 0);
 }
+function formatearNumero(n) {
+  if (n == null || n === '') return '';
+  return Number(n).toLocaleString('es-PY');
+}
+function parsearNumero(s) {
+  if (s == null) return NaN;
+  const cleaned = String(s).replace(/\./g, '').replace(/,/g, '.').trim();
+  if (!cleaned) return NaN;
+  return Number(cleaned);
+}
+function attachNumberFormatter(inputEl) {
+  if (!inputEl) return;
+  inputEl.addEventListener('input', () => {
+    const raw = inputEl.value.replace(/\D/g, '');
+    inputEl.value = raw ? Number(raw).toLocaleString('es-PY') : '';
+  });
+}
 function escapeHtml(str) {
   if (str == null) return '';
   return String(str)
@@ -353,7 +370,7 @@ async function abrirModalEditarAlumno(id) {
   document.getElementById('alumno-tutor-nombre').value = a.tutor_nombre || '';
   document.getElementById('alumno-tutor-telefono').value = a.tutor_telefono || '';
   document.getElementById('alumno-tutor-email').value = a.tutor_email || '';
-  document.getElementById('alumno-monto-mensual').value = a.monto_mensual;
+  document.getElementById('alumno-monto-mensual').value = formatearNumero(a.monto_mensual);
   document.getElementById('alumno-estado').value = a.estado;
   document.getElementById('alumno-fecha-alta').value = a.fecha_alta || '';
   document.getElementById('alumno-fecha-baja').value = a.fecha_baja || '';
@@ -393,7 +410,7 @@ alumnoForm.addEventListener('submit', async (e) => {
 
   const nombre = document.getElementById('alumno-nombre').value.trim();
   const montoStr = document.getElementById('alumno-monto-mensual').value;
-  const monto = Number(montoStr);
+  const monto = parsearNumero(montoStr);
 
   let valido = true;
   if (!nombre) {
@@ -565,7 +582,7 @@ function abrirModalCrearPago() {
   document.getElementById('pago-form-save').textContent = 'Registrar pago';
   pagoForm.reset();
   document.getElementById('pago-id').value = '';
-  document.getElementById('pago-monto').value = alumnoActualData.monto_mensual;
+  document.getElementById('pago-monto').value = formatearNumero(alumnoActualData.monto_mensual);
   document.getElementById('pago-fecha').value = hoyISO();
   document.getElementById('pago-concepto').value = 'Cuota mensual';
   limpiarErroresPago();
@@ -581,7 +598,7 @@ function abrirModalEditarPago(pagoId) {
   document.getElementById('pago-form-title').textContent = 'Editar pago';
   document.getElementById('pago-form-save').textContent = 'Guardar cambios';
   document.getElementById('pago-id').value = p.id;
-  document.getElementById('pago-monto').value = p.monto;
+  document.getElementById('pago-monto').value = formatearNumero(p.monto);
   document.getElementById('pago-fecha').value = p.fecha_pago;
   document.getElementById('pago-concepto').value = p.concepto || '';
   document.getElementById('pago-metodo').value = p.metodo_pago || '';
@@ -609,7 +626,7 @@ pagoForm.addEventListener('submit', async (e) => {
   limpiarErroresPago();
 
   const montoStr = document.getElementById('pago-monto').value;
-  const monto = Number(montoStr);
+  const monto = parsearNumero(montoStr);
   const fecha = document.getElementById('pago-fecha').value;
   const concepto = document.getElementById('pago-concepto').value.trim();
   const metodo = document.getElementById('pago-metodo').value;
@@ -877,6 +894,12 @@ document.addEventListener('keydown', (e) => {
   else if (!alumnoModal.classList.contains('hidden')) cerrarModalAlumno();
   else if (!pagosModal.classList.contains('hidden')) cerrarModalPagos();
 });
+
+/* ============================================================
+   FORMATTERS DE INPUTS NUMÉRICOS
+   ============================================================ */
+attachNumberFormatter(document.getElementById('alumno-monto-mensual'));
+attachNumberFormatter(document.getElementById('pago-monto'));
 
 /* ============================================================
    INIT
