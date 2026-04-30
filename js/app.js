@@ -10,20 +10,17 @@ const KEY_USER  = 'app_user';
    ESTADO
    ============================================================ */
 let alumnos = [];
-let stats = null;
-let filtroEstado = 'todos';      // estado matrícula
-let filtroPago   = 'todos';      // estado pago
+let filtroEstado = 'todos';
 let busqueda = '';
 let cargando = false;
 
 let editandoAlumnoId = null;
-let editandoCuotaId  = null;
-let alumnoActualId   = null;     // alumno cuyo modal de cuotas está abierto
+let editandoPagoId  = null;
+let alumnoActualId   = null;
 let alumnoActualData = null;
-let cuotasActuales   = [];
+let pagosActuales    = [];
 
-let pagandoCuotaId = null;
-let pendingConfirm = null;       // {action, payload, message, label}
+let pendingConfirm = null;
 
 /* ============================================================
    CLIENTE HTTP
@@ -79,24 +76,19 @@ const api = {
     const params = new URLSearchParams();
     if (busqueda.trim()) params.set('search', busqueda.trim());
     if (filtroEstado !== 'todos') params.set('estado', filtroEstado);
-    if (filtroPago !== 'todos') params.set('estado_pago', filtroPago);
     const qs = params.toString();
     return this.request(`/api/alumnos${qs ? '?' + qs : ''}`);
   },
-  obtenerStats()           { return this.request('/api/alumnos/stats'); },
-  obtenerAlumno(id)        { return this.request(`/api/alumnos/${id}`); },
-  crearAlumno(data)        { return this.request('/api/alumnos',       { method: 'POST', body: JSON.stringify(data) }); },
-  actualizarAlumno(id, d)  { return this.request(`/api/alumnos/${id}`, { method: 'PUT',  body: JSON.stringify(d) }); },
-  eliminarAlumno(id)       { return this.request(`/api/alumnos/${id}`, { method: 'DELETE' }); },
+  obtenerAlumno(id)         { return this.request(`/api/alumnos/${id}`); },
+  crearAlumno(data)         { return this.request('/api/alumnos',       { method: 'POST', body: JSON.stringify(data) }); },
+  actualizarAlumno(id, d)   { return this.request(`/api/alumnos/${id}`, { method: 'PUT',  body: JSON.stringify(d) }); },
+  eliminarAlumno(id)        { return this.request(`/api/alumnos/${id}`, { method: 'DELETE' }); },
 
-  // cuotas
-  listarCuotas(alumnoId)    { return this.request(`/api/alumnos/${alumnoId}/cuotas`); },
-  crearCuota(alumnoId, d)   { return this.request(`/api/alumnos/${alumnoId}/cuotas`, { method: 'POST', body: JSON.stringify(d) }); },
-  actualizarCuota(id, d)    { return this.request(`/api/cuotas/${id}`, { method: 'PUT', body: JSON.stringify(d) }); },
-  pagarCuota(id, d)         { return this.request(`/api/cuotas/${id}/pagar`,        { method: 'POST', body: JSON.stringify(d) }); },
-  anularPagoCuota(id)       { return this.request(`/api/cuotas/${id}/anular-pago`,  { method: 'POST', body: '{}' }); },
-  eliminarCuota(id)         { return this.request(`/api/cuotas/${id}`, { method: 'DELETE' }); },
-  generarMes(d)             { return this.request('/api/cuotas/generar-mes', { method: 'POST', body: JSON.stringify(d) }); },
+  // pagos
+  listarPagos(alumnoId)     { return this.request(`/api/alumnos/${alumnoId}/pagos`); },
+  crearPago(alumnoId, d)    { return this.request(`/api/alumnos/${alumnoId}/pagos`, { method: 'POST', body: JSON.stringify(d) }); },
+  actualizarPago(id, d)     { return this.request(`/api/pagos/${id}`, { method: 'PUT', body: JSON.stringify(d) }); },
+  eliminarPago(id)          { return this.request(`/api/pagos/${id}`, { method: 'DELETE' }); },
 };
 
 /* ============================================================
@@ -123,11 +115,12 @@ function escapeHtml(str) {
 }
 function hoyISO() { return new Date().toISOString().slice(0, 10); }
 
-const LABEL_ESTADO_ALUMNO = {
-  activo: 'Activo', suspendido: 'Suspendido', retirado: 'Retirado', egresado: 'Egresado',
-};
-const LABEL_ESTADO_PAGO = {
-  vencido: 'Vencido', proximo: 'Por vencer', al_dia: 'Al día', sin_pendientes: 'Sin deuda', pagado: 'Pagado',
+const LABEL_ESTADO = { activo: 'Activo', inactivo: 'Inactivo' };
+const LABEL_METODO = {
+  efectivo: 'Efectivo',
+  transferencia: 'Transferencia',
+  tarjeta: 'Tarjeta',
+  otro: 'Otro',
 };
 
 /* ============================================================
@@ -199,25 +192,7 @@ async function mostrarDashboard() {
   document.getElementById('dashboard').classList.remove('hidden');
   document.getElementById('header-date').textContent =
     'Resumen general · ' + new Date().toLocaleDateString('es-PY', { day: '2-digit', month: 'long', year: 'numeric' });
-  await Promise.all([refrescarStats(), recargarAlumnos()]);
-}
-
-async function refrescarStats() {
-  try {
-    stats = await api.obtenerStats();
-  } catch (_) { return; }
-  pintarStats();
-}
-
-function pintarStats() {
-  if (!stats) return;
-  document.getElementById('stat-activos').textContent       = stats.alumnos.activos;
-  document.getElementById('stat-total-alumnos').textContent = stats.alumnos.total;
-  document.getElementById('stat-vencidos').textContent      = stats.pagos.vencidos;
-  document.getElementById('stat-proximos').textContent      = stats.pagos.proximos;
-  document.getElementById('stat-pagadas-mes').textContent   = stats.pagos.pagados_mes;
-  document.getElementById('stat-deuda-total').textContent   = formatearMonto(stats.deuda_total);
-  document.getElementById('stat-recaudado-mes').textContent = formatearMonto(stats.recaudado_mes);
+  await recargarAlumnos();
 }
 
 async function recargarAlumnos() {
@@ -240,20 +215,19 @@ function renderEstadoCarga() {
     </div>`;
 }
 
+/* ============================================================
+   RENDER
+   ============================================================ */
 function render() {
-  // chips
-  document.querySelectorAll('[data-filter-pago]').forEach(c =>
-    c.classList.toggle('active', c.dataset.filterPago === filtroPago));
   document.querySelectorAll('[data-filter-estado]').forEach(c =>
     c.classList.toggle('active', c.dataset.filterEstado === filtroEstado));
 
   const wrap = document.getElementById('table-wrap');
   if (alumnos.length === 0) {
-    const sinRegistros = !stats || stats.alumnos.total === 0;
     wrap.innerHTML = `
       <div class="empty-state">
-        <p class="empty-title">${sinRegistros ? 'Aún no hay alumnos registrados' : 'Sin resultados'}</p>
-        <p class="empty-sub">${sinRegistros ? 'Comience agregando su primer alumno' : 'Ajuste los filtros o la búsqueda'}</p>
+        <p class="empty-title">${busqueda || filtroEstado !== 'todos' ? 'Sin resultados' : 'Aún no hay alumnos registrados'}</p>
+        <p class="empty-sub">${busqueda || filtroEstado !== 'todos' ? 'Ajuste los filtros o la búsqueda' : 'Comience agregando su primer alumno'}</p>
       </div>`;
   } else {
     wrap.innerHTML = `
@@ -263,19 +237,18 @@ function render() {
             <th>ID</th>
             <th>Alumno</th>
             <th>Contacto</th>
-            <th>Estado</th>
             <th class="text-right">Cuota</th>
-            <th>Próx. venc.</th>
-            <th class="text-right">Deuda</th>
-            <th>Pago</th>
+            <th>Estado</th>
+            <th>Último pago</th>
+            <th class="text-right">Total pagado</th>
             <th class="text-right">Acciones</th>
           </tr>
         </thead>
         <tbody>${alumnos.map(renderFila).join('')}</tbody>
       </table>`;
 
-    wrap.querySelectorAll('[data-action="cuotas"]').forEach(b =>
-      b.addEventListener('click', () => abrirModalCuotas(parseInt(b.dataset.id, 10))));
+    wrap.querySelectorAll('[data-action="pagos"]').forEach(b =>
+      b.addEventListener('click', () => abrirModalPagos(parseInt(b.dataset.id, 10))));
     wrap.querySelectorAll('[data-action="edit"]').forEach(b =>
       b.addEventListener('click', () => abrirModalEditarAlumno(parseInt(b.dataset.id, 10))));
     wrap.querySelectorAll('[data-action="delete"]').forEach(b =>
@@ -283,19 +256,17 @@ function render() {
   }
 
   document.getElementById('results-footer').textContent =
-    `MOSTRANDO ${alumnos.length} DE ${stats ? stats.alumnos.total : alumnos.length} ALUMNOS · DATOS SINCRONIZADOS CON EL SERVIDOR`;
+    `MOSTRANDO ${alumnos.length} ALUMNO${alumnos.length === 1 ? '' : 'S'} · DATOS SINCRONIZADOS CON EL SERVIDOR`;
 }
 
 function renderFila(a) {
-  const labelPago = LABEL_ESTADO_PAGO[a.estado_pago] || a.estado_pago;
-  const cssPago   = a.estado_pago === 'al_dia' ? 'al-dia' :
-                    a.estado_pago === 'sin_pendientes' ? 'sin-pendientes' : a.estado_pago;
-  const labelEstado = LABEL_ESTADO_ALUMNO[a.estado] || a.estado;
+  const labelEstado = LABEL_ESTADO[a.estado] || a.estado;
   const claseEstado = `chip-estado chip-${a.estado}`;
   const contacto = a.telefono || a.email || a.tutor_telefono || '—';
   const contactoSub = a.email && a.telefono ? a.email : '';
-  const proxVenc = a.proximo_vencimiento ? formatearFecha(a.proximo_vencimiento) : '—';
-  const deuda = Number(a.deuda_pendiente) > 0 ? formatearMonto(a.deuda_pendiente) : '—';
+  const ultimoPago = a.ultimo_pago_fecha
+    ? `${formatearFecha(a.ultimo_pago_fecha)}<span class="td-sub">${formatearMonto(a.ultimo_pago_monto)}</span>`
+    : '<span class="text-muted">—</span>';
 
   return `
     <tr>
@@ -308,21 +279,13 @@ function renderFila(a) {
         <p class="td-contacto">${escapeHtml(contacto)}</p>
         ${contactoSub ? `<p class="td-sub">${escapeHtml(contactoSub)}</p>` : ''}
       </td>
-      <td><span class="${claseEstado}">${labelEstado}</span></td>
       <td class="td-monto">${formatearMonto(a.monto_mensual)}</td>
-      <td class="td-fecha">${proxVenc}</td>
-      <td class="td-monto ${Number(a.deuda_pendiente) > 0 ? 'deuda' : ''}">${deuda}</td>
-      <td>
-        <div class="estado-wrap">
-          <span class="estado-badge ${cssPago}">${labelPago}</span>
-          ${a.cuotas_pendientes > 0
-            ? `<span class="estado-sub">${a.cuotas_pendientes} cuota${a.cuotas_pendientes === 1 ? '' : 's'} pend.</span>`
-            : ''}
-        </div>
-      </td>
+      <td><span class="${claseEstado}">${labelEstado}</span></td>
+      <td class="td-fecha">${ultimoPago}</td>
+      <td class="td-monto td-total">${formatearMonto(a.total_pagado)}</td>
       <td>
         <div class="row-actions">
-          <button class="icon-btn" data-action="cuotas" data-id="${a.id}" title="Ver cuotas" aria-label="Cuotas">
+          <button class="icon-btn" data-action="pagos" data-id="${a.id}" title="Ver pagos" aria-label="Pagos">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
           </button>
           <button class="icon-btn" data-action="edit" data-id="${a.id}" title="Editar" aria-label="Editar">
@@ -340,12 +303,6 @@ function renderFila(a) {
    FILTROS Y BÚSQUEDA
    ============================================================ */
 let busquedaTimer = null;
-document.getElementById('filter-row-pago').addEventListener('click', (e) => {
-  const chip = e.target.closest('[data-filter-pago]');
-  if (!chip) return;
-  filtroPago = chip.dataset.filterPago;
-  recargarAlumnos();
-});
 document.getElementById('filter-row-estado').addEventListener('click', (e) => {
   const chip = e.target.closest('[data-filter-estado]');
   if (!chip) return;
@@ -408,17 +365,14 @@ async function abrirModalEditarAlumno(id) {
 }
 
 function toggleCamposBaja(estado) {
-  const visible = estado === 'retirado' || estado === 'egresado' || estado === 'suspendido';
+  const visible = estado === 'inactivo';
   document.getElementById('field-fecha-baja').style.display = visible ? '' : 'none';
   document.getElementById('field-motivo-baja').style.display = visible ? '' : 'none';
 }
 document.getElementById('alumno-estado').addEventListener('change', (e) =>
   toggleCamposBaja(e.target.value));
 
-function cerrarModalAlumno() {
-  alumnoModal.classList.add('hidden');
-  limpiarErroresAlumno();
-}
+function cerrarModalAlumno() { alumnoModal.classList.add('hidden'); limpiarErroresAlumno(); }
 function limpiarErroresAlumno() {
   ['nombre', 'monto-mensual'].forEach(k => {
     const e = document.getElementById(`error-${k}`);
@@ -481,7 +435,7 @@ alumnoForm.addEventListener('submit', async (e) => {
       showToast(`Alumno "${nombre}" actualizado`, 'success');
     }
     cerrarModalAlumno();
-    await Promise.all([refrescarStats(), recargarAlumnos()]);
+    await recargarAlumnos();
   } catch (err) {
     showToast(err.message, 'error');
   } finally {
@@ -490,234 +444,212 @@ alumnoForm.addEventListener('submit', async (e) => {
 });
 
 /* ============================================================
-   MODAL CUOTAS DEL ALUMNO
+   MODAL PAGOS (historial)
    ============================================================ */
-const cuotasModal = document.getElementById('cuotas-modal');
+const pagosModal = document.getElementById('pagos-modal');
 
-async function abrirModalCuotas(alumnoId) {
+async function abrirModalPagos(alumnoId) {
   alumnoActualId = alumnoId;
-  cuotasModal.classList.remove('hidden');
-  document.getElementById('cuotas-list').innerHTML = `
+  pagosModal.classList.remove('hidden');
+  document.getElementById('pagos-list').innerHTML = `
     <div class="empty-state"><p class="empty-title">Cargando…</p></div>`;
 
   try {
-    const [a, cuotas] = await Promise.all([api.obtenerAlumno(alumnoId), api.listarCuotas(alumnoId)]);
+    const [a, pagos] = await Promise.all([api.obtenerAlumno(alumnoId), api.listarPagos(alumnoId)]);
     alumnoActualData = a;
-    cuotasActuales = cuotas;
-    pintarHeaderCuotas(a);
-    renderCuotas(cuotas);
+    pagosActuales = pagos;
+    pintarHeaderPagos(a);
+    renderPagos(pagos);
   } catch (err) {
     showToast(err.message, 'error');
-    cerrarModalCuotas();
+    cerrarModalPagos();
   }
 }
 
-function pintarHeaderCuotas(a) {
-  document.getElementById('cuotas-modal-title').textContent = a.nombre;
-  document.getElementById('cuotas-modal-eyebrow').textContent =
+function pintarHeaderPagos(a) {
+  document.getElementById('pagos-modal-title').textContent = a.nombre;
+  document.getElementById('pagos-modal-eyebrow').textContent =
     a.cedula ? `Cédula ${a.cedula}` : 'Historial de pagos';
-  document.getElementById('cuotas-summary-mensual').textContent = formatearMonto(a.monto_mensual);
-  document.getElementById('cuotas-summary-deuda').textContent = formatearMonto(a.deuda_pendiente);
-  document.getElementById('cuotas-summary-vencidas').textContent = a.cuotas_vencidas;
+  document.getElementById('pagos-summary-mensual').textContent = formatearMonto(a.monto_mensual);
+  document.getElementById('pagos-summary-total').textContent = formatearMonto(a.total_pagado);
+  document.getElementById('pagos-summary-ultimo').textContent = a.ultimo_pago_fecha
+    ? formatearFecha(a.ultimo_pago_fecha)
+    : '—';
 }
 
-function renderCuotas(cuotas) {
-  const list = document.getElementById('cuotas-list');
-  if (cuotas.length === 0) {
+function renderPagos(pagos) {
+  const list = document.getElementById('pagos-list');
+  if (pagos.length === 0) {
     list.innerHTML = `
       <div class="empty-state">
-        <p class="empty-title">Sin cuotas registradas</p>
-        <p class="empty-sub">Agregue una cuota con el botón de arriba</p>
+        <p class="empty-title">Sin pagos registrados</p>
+        <p class="empty-sub">Use el botón "Registrar pago" para agregar uno</p>
       </div>`;
     return;
   }
 
-  list.innerHTML = cuotas.map(renderItemCuota).join('');
+  list.innerHTML = pagos.map(renderItemPago).join('');
 
-  list.querySelectorAll('[data-cuota-action="pagar"]').forEach(b =>
-    b.addEventListener('click', () => abrirModalPago(parseInt(b.dataset.id, 10))));
-  list.querySelectorAll('[data-cuota-action="anular"]').forEach(b =>
-    b.addEventListener('click', () => pedirAnularPago(parseInt(b.dataset.id, 10))));
-  list.querySelectorAll('[data-cuota-action="edit"]').forEach(b =>
-    b.addEventListener('click', () => abrirModalEditarCuota(parseInt(b.dataset.id, 10))));
-  list.querySelectorAll('[data-cuota-action="delete"]').forEach(b =>
-    b.addEventListener('click', () => pedirEliminarCuota(parseInt(b.dataset.id, 10))));
+  list.querySelectorAll('[data-pago-action="edit"]').forEach(b =>
+    b.addEventListener('click', () => abrirModalEditarPago(parseInt(b.dataset.id, 10))));
+  list.querySelectorAll('[data-pago-action="delete"]').forEach(b =>
+    b.addEventListener('click', () => pedirEliminarPago(parseInt(b.dataset.id, 10))));
 }
 
-function renderItemCuota(c) {
-  const cssEstado = c.estado_pago === 'al_dia' ? 'al-dia' : c.estado_pago;
-  const labelEstado = LABEL_ESTADO_PAGO[c.estado_pago] || c.estado_pago;
-  const periodo = c.periodo ? c.periodo : '—';
-  const pagoInfo = c.pagado
-    ? `<p class="cuota-pago-info">Pagado el ${formatearFecha(c.fecha_pago)}${c.metodo_pago ? ' · ' + escapeHtml(c.metodo_pago) : ''}${c.monto_pagado != null ? ' · ' + formatearMonto(c.monto_pagado) : ''}</p>`
-    : '';
+function renderItemPago(p) {
+  const concepto = p.concepto || 'Pago';
+  const metodo = p.metodo_pago ? (LABEL_METODO[p.metodo_pago] || p.metodo_pago) : '';
 
   return `
-    <div class="cuota-item ${c.pagado ? 'pagada' : ''}">
+    <div class="cuota-item pagada">
       <div class="cuota-main">
         <div class="cuota-info">
-          <p class="cuota-concepto">${escapeHtml(c.concepto)}</p>
+          <p class="cuota-concepto">${escapeHtml(concepto)}</p>
           <p class="cuota-meta">
-            <span>Período: ${escapeHtml(periodo)}</span>
-            <span>Vence: ${formatearFecha(c.fecha_vencimiento)}</span>
+            <span>${formatearFecha(p.fecha_pago)}</span>
+            ${metodo ? `<span>${escapeHtml(metodo)}</span>` : ''}
           </p>
-          ${pagoInfo}
-          ${c.nota ? `<p class="cuota-nota">${escapeHtml(c.nota)}</p>` : ''}
+          ${p.nota ? `<p class="cuota-nota">${escapeHtml(p.nota)}</p>` : ''}
         </div>
         <div class="cuota-monto-block">
-          <p class="cuota-monto">${formatearMonto(c.monto)}</p>
-          <span class="estado-badge ${cssEstado}">${labelEstado}</span>
+          <p class="cuota-monto">${formatearMonto(p.monto)}</p>
         </div>
       </div>
       <div class="cuota-actions">
-        ${c.pagado
-          ? `<button class="btn btn-secondary btn-sm" data-cuota-action="anular" data-id="${c.id}">Anular pago</button>`
-          : `<button class="btn btn-primary btn-sm" data-cuota-action="pagar" data-id="${c.id}">Marcar pagada</button>`}
-        <button class="icon-btn" data-cuota-action="edit" data-id="${c.id}" title="Editar" aria-label="Editar">
+        <button class="icon-btn" data-pago-action="edit" data-id="${p.id}" title="Editar" aria-label="Editar">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
         </button>
-        <button class="icon-btn danger" data-cuota-action="delete" data-id="${c.id}" title="Eliminar" aria-label="Eliminar">
+        <button class="icon-btn danger" data-pago-action="delete" data-id="${p.id}" title="Eliminar" aria-label="Eliminar">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
         </button>
       </div>
     </div>`;
 }
 
-function cerrarModalCuotas() {
-  cuotasModal.classList.add('hidden');
+function cerrarModalPagos() {
+  pagosModal.classList.add('hidden');
   alumnoActualId = null;
   alumnoActualData = null;
-  cuotasActuales = [];
+  pagosActuales = [];
 }
 
-document.getElementById('cuotas-modal-close').addEventListener('click', cerrarModalCuotas);
-cuotasModal.addEventListener('click', (e) => { if (e.target === cuotasModal) cerrarModalCuotas(); });
-document.getElementById('btn-add-cuota').addEventListener('click', () => abrirModalCrearCuota());
+document.getElementById('pagos-modal-close').addEventListener('click', cerrarModalPagos);
+pagosModal.addEventListener('click', (e) => { if (e.target === pagosModal) cerrarModalPagos(); });
+document.getElementById('btn-add-pago').addEventListener('click', () => abrirModalCrearPago());
 
-async function refrescarCuotasActuales() {
+async function refrescarPagosActuales() {
   if (!alumnoActualId) return;
   try {
-    const [a, cuotas] = await Promise.all([
+    const [a, pagos] = await Promise.all([
       api.obtenerAlumno(alumnoActualId),
-      api.listarCuotas(alumnoActualId),
+      api.listarPagos(alumnoActualId),
     ]);
     alumnoActualData = a;
-    cuotasActuales = cuotas;
-    pintarHeaderCuotas(a);
-    renderCuotas(cuotas);
+    pagosActuales = pagos;
+    pintarHeaderPagos(a);
+    renderPagos(pagos);
   } catch (err) { showToast(err.message, 'error'); }
 }
 
 /* ============================================================
-   MODAL CREAR/EDITAR CUOTA
+   MODAL PAGO FORM (crear/editar)
    ============================================================ */
-const cuotaFormModal = document.getElementById('cuota-form-modal');
-const cuotaForm = document.getElementById('cuota-form');
+const pagoFormModal = document.getElementById('pago-form-modal');
+const pagoForm = document.getElementById('pago-form');
 
-function abrirModalCrearCuota() {
+function abrirModalCrearPago() {
   if (!alumnoActualId || !alumnoActualData) return;
-  editandoCuotaId = null;
-  document.getElementById('cuota-form-eyebrow').textContent = 'Nueva cuota';
-  document.getElementById('cuota-form-title').textContent = `Cuota para ${alumnoActualData.nombre}`;
-  document.getElementById('cuota-form-save').textContent = 'Crear cuota';
-  cuotaForm.reset();
-  document.getElementById('cuota-id').value = '';
-  document.getElementById('cuota-concepto').value = 'Cuota mensual';
-  document.getElementById('cuota-monto').value = alumnoActualData.monto_mensual;
-  limpiarErroresCuota();
-  cuotaFormModal.classList.remove('hidden');
-  setTimeout(() => document.getElementById('cuota-concepto').focus(), 50);
+  editandoPagoId = null;
+  document.getElementById('pago-form-eyebrow').textContent = 'Nuevo pago';
+  document.getElementById('pago-form-title').textContent = `Pago de ${alumnoActualData.nombre}`;
+  document.getElementById('pago-form-save').textContent = 'Registrar pago';
+  pagoForm.reset();
+  document.getElementById('pago-id').value = '';
+  document.getElementById('pago-monto').value = alumnoActualData.monto_mensual;
+  document.getElementById('pago-fecha').value = hoyISO();
+  document.getElementById('pago-concepto').value = 'Cuota mensual';
+  limpiarErroresPago();
+  pagoFormModal.classList.remove('hidden');
+  setTimeout(() => document.getElementById('pago-monto').focus(), 50);
 }
 
-function abrirModalEditarCuota(cuotaId) {
-  const c = cuotasActuales.find(x => x.id === cuotaId);
-  if (!c) return;
-  editandoCuotaId = cuotaId;
-  document.getElementById('cuota-form-eyebrow').textContent = 'Edición';
-  document.getElementById('cuota-form-title').textContent = 'Editar cuota';
-  document.getElementById('cuota-form-save').textContent = 'Guardar cambios';
-  document.getElementById('cuota-id').value = c.id;
-  document.getElementById('cuota-concepto').value = c.concepto;
-  document.getElementById('cuota-monto').value = c.monto;
-  document.getElementById('cuota-fecha-vencimiento').value = c.fecha_vencimiento;
-  document.getElementById('cuota-periodo').value = c.periodo || '';
-  document.getElementById('cuota-nota').value = c.nota || '';
-  limpiarErroresCuota();
-  cuotaFormModal.classList.remove('hidden');
+function abrirModalEditarPago(pagoId) {
+  const p = pagosActuales.find(x => x.id === pagoId);
+  if (!p) return;
+  editandoPagoId = pagoId;
+  document.getElementById('pago-form-eyebrow').textContent = 'Edición';
+  document.getElementById('pago-form-title').textContent = 'Editar pago';
+  document.getElementById('pago-form-save').textContent = 'Guardar cambios';
+  document.getElementById('pago-id').value = p.id;
+  document.getElementById('pago-monto').value = p.monto;
+  document.getElementById('pago-fecha').value = p.fecha_pago;
+  document.getElementById('pago-concepto').value = p.concepto || '';
+  document.getElementById('pago-metodo').value = p.metodo_pago || '';
+  document.getElementById('pago-nota').value = p.nota || '';
+  limpiarErroresPago();
+  pagoFormModal.classList.remove('hidden');
 }
 
-function cerrarModalCuotaForm() {
-  cuotaFormModal.classList.add('hidden');
-  limpiarErroresCuota();
-}
-function limpiarErroresCuota() {
-  ['cuota-concepto', 'cuota-monto', 'cuota-fecha'].forEach(k => {
+function cerrarModalPagoForm() { pagoFormModal.classList.add('hidden'); limpiarErroresPago(); }
+function limpiarErroresPago() {
+  ['pago-monto', 'pago-fecha'].forEach(k => {
     const e = document.getElementById(`error-${k}`);
     if (e) e.classList.add('hidden');
-  });
-  ['cuota-concepto', 'cuota-monto', 'cuota-fecha-vencimiento'].forEach(k => {
     const i = document.getElementById(k);
     if (i) i.classList.remove('error');
   });
 }
 
-document.getElementById('cuota-form-close').addEventListener('click', cerrarModalCuotaForm);
-document.getElementById('cuota-form-cancel').addEventListener('click', cerrarModalCuotaForm);
-cuotaFormModal.addEventListener('click', (e) => { if (e.target === cuotaFormModal) cerrarModalCuotaForm(); });
+document.getElementById('pago-form-close').addEventListener('click', cerrarModalPagoForm);
+document.getElementById('pago-form-cancel').addEventListener('click', cerrarModalPagoForm);
+pagoFormModal.addEventListener('click', (e) => { if (e.target === pagoFormModal) cerrarModalPagoForm(); });
 
-cuotaForm.addEventListener('submit', async (e) => {
+pagoForm.addEventListener('submit', async (e) => {
   e.preventDefault();
-  limpiarErroresCuota();
+  limpiarErroresPago();
 
-  const concepto = document.getElementById('cuota-concepto').value.trim();
-  const montoStr = document.getElementById('cuota-monto').value;
+  const montoStr = document.getElementById('pago-monto').value;
   const monto = Number(montoStr);
-  const fecha = document.getElementById('cuota-fecha-vencimiento').value;
-  const periodo = document.getElementById('cuota-periodo').value.trim();
-  const nota = document.getElementById('cuota-nota').value.trim();
+  const fecha = document.getElementById('pago-fecha').value;
+  const concepto = document.getElementById('pago-concepto').value.trim();
+  const metodo = document.getElementById('pago-metodo').value;
+  const nota = document.getElementById('pago-nota').value.trim();
 
   let valido = true;
-  if (!concepto) {
-    document.getElementById('error-cuota-concepto').classList.remove('hidden');
-    document.getElementById('cuota-concepto').classList.add('error');
-    valido = false;
-  }
   if (!montoStr || isNaN(monto) || monto <= 0) {
-    document.getElementById('error-cuota-monto').classList.remove('hidden');
-    document.getElementById('cuota-monto').classList.add('error');
+    document.getElementById('error-pago-monto').classList.remove('hidden');
+    document.getElementById('pago-monto').classList.add('error');
     valido = false;
   }
   if (!fecha) {
-    document.getElementById('error-cuota-fecha').classList.remove('hidden');
-    document.getElementById('cuota-fecha-vencimiento').classList.add('error');
-    valido = false;
-  }
-  if (periodo && !/^\d{4}-(0[1-9]|1[0-2])$/.test(periodo)) {
-    showToast('El período debe tener el formato YYYY-MM (ej: 2026-05)', 'error');
+    document.getElementById('error-pago-fecha').classList.remove('hidden');
+    document.getElementById('pago-fecha').classList.add('error');
     valido = false;
   }
   if (!valido) return;
 
   const payload = {
-    concepto, monto,
-    fecha_vencimiento: fecha,
-    periodo: periodo || null,
+    monto,
+    fecha_pago: fecha,
+    concepto: concepto || null,
+    metodo_pago: metodo || null,
     nota: nota || null,
   };
-  const btn = document.getElementById('cuota-form-save');
+
+  const btn = document.getElementById('pago-form-save');
   const orig = btn.textContent;
   btn.disabled = true; btn.textContent = 'Guardando…';
   try {
-    if (editandoCuotaId == null) {
-      await api.crearCuota(alumnoActualId, payload);
-      showToast('Cuota creada', 'success');
+    if (editandoPagoId == null) {
+      await api.crearPago(alumnoActualId, payload);
+      showToast('Pago registrado', 'success');
     } else {
-      await api.actualizarCuota(editandoCuotaId, payload);
-      showToast('Cuota actualizada', 'success');
+      await api.actualizarPago(editandoPagoId, payload);
+      showToast('Pago actualizado', 'success');
     }
-    cerrarModalCuotaForm();
-    await refrescarCuotasActuales();
-    await Promise.all([refrescarStats(), recargarAlumnos()]);
+    cerrarModalPagoForm();
+    await refrescarPagosActuales();
+    await recargarAlumnos();
   } catch (err) {
     showToast(err.message, 'error');
   } finally {
@@ -726,109 +658,35 @@ cuotaForm.addEventListener('submit', async (e) => {
 });
 
 /* ============================================================
-   MODAL PAGO
+   ELIMINACIONES
    ============================================================ */
-const pagoModal = document.getElementById('pago-modal');
-const pagoForm = document.getElementById('pago-form');
-
-function abrirModalPago(cuotaId) {
-  const c = cuotasActuales.find(x => x.id === cuotaId);
-  if (!c) return;
-  pagandoCuotaId = cuotaId;
-  document.getElementById('pago-title').textContent = `Pagar: ${c.concepto}`;
-  document.getElementById('pago-cuota-id').value = cuotaId;
-  document.getElementById('pago-monto').value = c.monto;
-  document.getElementById('pago-fecha').value = hoyISO();
-  document.getElementById('pago-metodo').value = '';
-  document.getElementById('error-pago-monto').classList.add('hidden');
-  document.getElementById('pago-monto').classList.remove('error');
-  pagoModal.classList.remove('hidden');
-}
-
-function cerrarModalPago() {
-  pagoModal.classList.add('hidden');
-  pagandoCuotaId = null;
-}
-
-document.getElementById('pago-close').addEventListener('click', cerrarModalPago);
-document.getElementById('pago-cancel').addEventListener('click', cerrarModalPago);
-pagoModal.addEventListener('click', (e) => { if (e.target === pagoModal) cerrarModalPago(); });
-
-pagoForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const montoStr = document.getElementById('pago-monto').value;
-  const monto = Number(montoStr);
-  const fecha = document.getElementById('pago-fecha').value;
-  const metodo = document.getElementById('pago-metodo').value;
-
-  if (!montoStr || isNaN(monto) || monto <= 0) {
-    document.getElementById('error-pago-monto').classList.remove('hidden');
-    document.getElementById('pago-monto').classList.add('error');
-    return;
-  }
-
-  const btn = document.getElementById('pago-save');
-  const orig = btn.textContent;
-  btn.disabled = true; btn.textContent = 'Confirmando…';
-  try {
-    await api.pagarCuota(pagandoCuotaId, {
-      monto_pagado: monto,
-      fecha_pago: fecha || null,
-      metodo_pago: metodo || null,
-    });
-    showToast('Pago registrado', 'success');
-    cerrarModalPago();
-    await refrescarCuotasActuales();
-    await Promise.all([refrescarStats(), recargarAlumnos()]);
-  } catch (err) {
-    showToast(err.message, 'error');
-  } finally {
-    btn.disabled = false; btn.textContent = orig;
-  }
-});
-
-function pedirAnularPago(cuotaId) {
-  abrirConfirm({
-    title: '¿Anular el pago?',
-    message: 'La cuota volverá a estado pendiente.',
-    label: 'Anular pago',
-    danger: true,
-    action: async () => {
-      await api.anularPagoCuota(cuotaId);
-      showToast('Pago anulado', 'success');
-      await refrescarCuotasActuales();
-      await Promise.all([refrescarStats(), recargarAlumnos()]);
-    },
-  });
-}
-
-function pedirEliminarCuota(cuotaId) {
-  const c = cuotasActuales.find(x => x.id === cuotaId);
-  abrirConfirm({
-    title: '¿Eliminar cuota?',
-    message: `Se eliminará "${c ? c.concepto : ''}" de forma permanente.`,
-    label: 'Eliminar',
-    danger: true,
-    action: async () => {
-      await api.eliminarCuota(cuotaId);
-      showToast('Cuota eliminada', 'success');
-      await refrescarCuotasActuales();
-      await Promise.all([refrescarStats(), recargarAlumnos()]);
-    },
-  });
-}
-
 function pedirEliminarAlumno(id) {
   const a = alumnos.find(x => x.id === id);
   abrirConfirm({
     title: '¿Eliminar alumno?',
-    message: `Esta acción eliminará a "${a ? a.nombre : ''}" y todas sus cuotas. No se puede deshacer.`,
+    message: `Esta acción eliminará a "${a ? a.nombre : ''}" y todos sus pagos. No se puede deshacer.`,
     label: 'Eliminar',
     danger: true,
     action: async () => {
       await api.eliminarAlumno(id);
       showToast(`Alumno "${a ? a.nombre : ''}" eliminado`, 'success');
-      await Promise.all([refrescarStats(), recargarAlumnos()]);
+      await recargarAlumnos();
+    },
+  });
+}
+
+function pedirEliminarPago(pagoId) {
+  const p = pagosActuales.find(x => x.id === pagoId);
+  abrirConfirm({
+    title: '¿Eliminar pago?',
+    message: `Se eliminará el pago de ${formatearMonto(p ? p.monto : 0)} del ${p ? formatearFecha(p.fecha_pago) : ''}.`,
+    label: 'Eliminar',
+    danger: true,
+    action: async () => {
+      await api.eliminarPago(pagoId);
+      showToast('Pago eliminado', 'success');
+      await refrescarPagosActuales();
+      await recargarAlumnos();
     },
   });
 }
@@ -869,77 +727,18 @@ document.getElementById('confirm-ok').addEventListener('click', async () => {
 });
 
 /* ============================================================
-   MODAL GENERAR MES
-   ============================================================ */
-const generarModal = document.getElementById('generar-modal');
-const generarForm  = document.getElementById('generar-form');
-
-document.getElementById('btn-generar-mes').addEventListener('click', () => {
-  generarForm.reset();
-  document.getElementById('generar-concepto').value = 'Cuota mensual';
-  // Sugerir el mes próximo
-  const hoy = new Date();
-  const proxMes = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 1);
-  document.getElementById('generar-periodo').value =
-    `${proxMes.getFullYear()}-${String(proxMes.getMonth() + 1).padStart(2, '0')}`;
-  document.getElementById('generar-fecha').value =
-    `${proxMes.getFullYear()}-${String(proxMes.getMonth() + 1).padStart(2, '0')}-10`;
-  document.getElementById('error-generar-periodo').classList.add('hidden');
-  document.getElementById('error-generar-fecha').classList.add('hidden');
-  generarModal.classList.remove('hidden');
-});
-
-document.getElementById('generar-close').addEventListener('click', () => generarModal.classList.add('hidden'));
-document.getElementById('generar-cancel').addEventListener('click', () => generarModal.classList.add('hidden'));
-generarModal.addEventListener('click', (e) => { if (e.target === generarModal) generarModal.classList.add('hidden'); });
-
-generarForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const periodo = document.getElementById('generar-periodo').value.trim();
-  const fecha = document.getElementById('generar-fecha').value;
-  const concepto = document.getElementById('generar-concepto').value.trim() || 'Cuota mensual';
-
-  let valido = true;
-  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(periodo)) {
-    document.getElementById('error-generar-periodo').classList.remove('hidden');
-    valido = false;
-  }
-  if (!fecha) {
-    document.getElementById('error-generar-fecha').classList.remove('hidden');
-    valido = false;
-  }
-  if (!valido) return;
-
-  const btn = document.getElementById('generar-save');
-  const orig = btn.textContent;
-  btn.disabled = true; btn.textContent = 'Generando…';
-  try {
-    const r = await api.generarMes({ periodo, fecha_vencimiento: fecha, concepto });
-    showToast(`${r.creadas} cuota${r.creadas === 1 ? '' : 's'} creada${r.creadas === 1 ? '' : 's'}, ${r.omitidas} omitida${r.omitidas === 1 ? '' : 's'}`, 'success');
-    generarModal.classList.add('hidden');
-    await Promise.all([refrescarStats(), recargarAlumnos()]);
-  } catch (err) {
-    showToast(err.message, 'error');
-  } finally {
-    btn.disabled = false; btn.textContent = orig;
-  }
-});
-
-/* ============================================================
-   EXPORTAR A EXCEL  (con ExcelJS — estilos completos)
+   EXPORTAR A EXCEL
    ============================================================ */
 const NAVY = 'FF27448C';
 const NAVY_DEEP = 'FF1D3470';
 const NAVY_TINT = 'FFEEF1F9';
 const ROW_ALT = 'FFF6F7FB';
-const COLOR_DANGER_BG = 'FFFEF2F2';
-const COLOR_DANGER_FG = 'FF991B1B';
-const COLOR_WARN_BG   = 'FFFFFBEB';
-const COLOR_WARN_FG   = 'FF92400E';
-const COLOR_OK_BG     = 'FFECFDF5';
-const COLOR_OK_FG     = 'FF065F46';
-const COLOR_MUTED     = 'FF78716C';
-const FORMAT_GS       = '"Gs. "#,##0';
+const COLOR_INACTIVO_BG = 'FFF5F5F4';
+const COLOR_INACTIVO_FG = 'FF78716C';
+const COLOR_ACTIVO_BG   = 'FFEEF1F9';
+const COLOR_ACTIVO_FG   = 'FF27448C';
+const COLOR_MUTED       = 'FF78716C';
+const FORMAT_GS         = '"Gs. "#,##0';
 
 document.getElementById('btn-export').addEventListener('click', async () => {
   if (alumnos.length === 0) { showToast('No hay alumnos para exportar', 'error'); return; }
@@ -950,102 +749,60 @@ document.getElementById('btn-export').addEventListener('click', async () => {
 
   try {
     const wb = new ExcelJS.Workbook();
-    wb.creator = 'Gestión de Alumnos';
+    wb.creator = 'Zarpemos';
     wb.created = new Date();
 
     const ws = wb.addWorksheet('Alumnos', {
-      views: [{ state: 'frozen', ySplit: 7 }],
-      properties: { defaultRowHeight: 18 },
+      views: [{ state: 'frozen', ySplit: 5 }],
     });
 
-    // -------- TÍTULO --------
-    ws.mergeCells('A1:O1');
-    const tCell = ws.getCell('A1');
-    tCell.value = 'Gestión de Alumnos';
-    tCell.font = { name: 'Cambria', size: 24, bold: true, color: { argb: NAVY } };
-    tCell.alignment = { horizontal: 'left', vertical: 'middle' };
-    ws.getRow(1).height = 36;
+    // Título
+    ws.mergeCells('A1:L1');
+    const t = ws.getCell('A1');
+    t.value = 'Zarpemos · Gestión de Alumnos';
+    t.font = { name: 'Inter', size: 22, bold: true, color: { argb: NAVY } };
+    t.alignment = { horizontal: 'left', vertical: 'middle' };
+    ws.getRow(1).height = 34;
 
-    ws.mergeCells('A2:O2');
-    const sCell = ws.getCell('A2');
-    sCell.value = `Reporte generado el ${new Date().toLocaleDateString('es-PY', { day: '2-digit', month: 'long', year: 'numeric' })}`;
-    sCell.font = { name: 'Calibri', size: 10, italic: true, color: { argb: COLOR_MUTED } };
-    sCell.alignment = { horizontal: 'left', vertical: 'middle' };
-    ws.getRow(2).height = 18;
+    // Subtítulo
+    ws.mergeCells('A2:L2');
+    const s = ws.getCell('A2');
+    s.value = `Reporte generado el ${new Date().toLocaleDateString('es-PY', { day: '2-digit', month: 'long', year: 'numeric' })}`;
+    s.font = { name: 'Inter', size: 10, italic: true, color: { argb: COLOR_MUTED } };
+    s.alignment = { horizontal: 'left', vertical: 'middle' };
 
-    // -------- TARJETAS DE STATS --------
-    const s = stats || { alumnos: { activos: 0, total: 0 }, pagos: { vencidos: 0, proximos: 0 }, deuda_total: 0, recaudado_mes: 0 };
-    const cards = [
-      ['A4', 'C4', 'Total alumnos',     s.alumnos.total,     null],
-      ['D4', 'F4', 'Activos',           s.alumnos.activos,   null],
-      ['G4', 'I4', 'Cuotas vencidas',   s.pagos.vencidos,    'danger'],
-      ['J4', 'L4', 'Deuda total',       Number(s.deuda_total), 'currency'],
-      ['M4', 'O4', 'Recaudado este mes', Number(s.recaudado_mes), 'currency-ok'],
-    ];
-
-    cards.forEach(([from, to, label, value, kind]) => {
-      // Label
-      ws.mergeCells(from + ':' + to);
-      const labelCell = ws.getCell(from);
-      labelCell.value = label.toUpperCase();
-      labelCell.font = { name: 'Calibri', size: 9, bold: true, color: { argb: COLOR_MUTED } };
-      labelCell.alignment = { horizontal: 'center', vertical: 'middle' };
-      labelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: NAVY_TINT } };
-      labelCell.border = { top: { style: 'thin', color: { argb: NAVY } }, left: { style: 'thin', color: { argb: NAVY } }, right: { style: 'thin', color: { argb: NAVY } } };
-
-      // Value (one row below)
-      const fromValue = from.replace('4', '5');
-      const toValue = to.replace('4', '5');
-      ws.mergeCells(fromValue + ':' + toValue);
-      const valCell = ws.getCell(fromValue);
-      valCell.value = value;
-      let color = NAVY;
-      if (kind === 'danger') color = COLOR_DANGER_FG;
-      else if (kind === 'currency-ok') color = COLOR_OK_FG;
-      valCell.font = { name: 'Cambria', size: 18, bold: true, color: { argb: color } };
-      valCell.alignment = { horizontal: 'center', vertical: 'middle' };
-      valCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } };
-      valCell.border = { bottom: { style: 'thin', color: { argb: NAVY } }, left: { style: 'thin', color: { argb: NAVY } }, right: { style: 'thin', color: { argb: NAVY } } };
-      if (kind === 'currency' || kind === 'currency-ok') valCell.numFmt = FORMAT_GS;
-    });
-    ws.getRow(4).height = 16;
-    ws.getRow(5).height = 28;
-
-    // -------- HEADERS DE TABLA (fila 7) --------
+    // Headers (fila 5)
     const columns = [
-      { key: 'id',                    header: 'ID',               width: 6,  align: 'center' },
-      { key: 'nombre',                header: 'Nombre',           width: 32 },
-      { key: 'cedula',                header: 'Cédula',           width: 14 },
-      { key: 'email',                 header: 'Email',            width: 28 },
-      { key: 'telefono',              header: 'Teléfono',         width: 14 },
-      { key: 'tutor_nombre',          header: 'Tutor',            width: 24 },
-      { key: 'tutor_telefono',        header: 'Tel. tutor',       width: 14 },
-      { key: 'monto_mensual',         header: 'Cuota mensual',    width: 16, format: 'currency', align: 'right' },
-      { key: 'estado_label',          header: 'Estado',           width: 13, align: 'center' },
-      { key: 'pago_label',            header: 'Estado pago',      width: 14, align: 'center' },
-      { key: 'cuotas_vencidas',       header: 'Cuotas venc.',     width: 11, align: 'center' },
-      { key: 'cuotas_pendientes',     header: 'Cuotas pend.',     width: 11, align: 'center' },
-      { key: 'deuda_pendiente',       header: 'Deuda',            width: 16, format: 'currency', align: 'right' },
-      { key: 'proximo_vencimiento',   header: 'Próx. venc.',      width: 14, align: 'center' },
-      { key: 'fecha_alta',            header: 'Fecha alta',       width: 14, align: 'center' },
+      { key: 'id',                header: 'ID',            width: 6,  align: 'center' },
+      { key: 'nombre',            header: 'Nombre',        width: 32 },
+      { key: 'cedula',            header: 'Cédula',        width: 14 },
+      { key: 'email',             header: 'Email',         width: 28 },
+      { key: 'telefono',          header: 'Teléfono',      width: 14 },
+      { key: 'tutor_nombre',      header: 'Tutor',         width: 22 },
+      { key: 'tutor_telefono',    header: 'Tel. tutor',    width: 14 },
+      { key: 'monto_mensual',     header: 'Cuota mensual', width: 16, format: 'currency', align: 'right' },
+      { key: 'estado_label',      header: 'Estado',        width: 12, align: 'center' },
+      { key: 'ultimo_pago_fecha', header: 'Último pago',   width: 14, align: 'center' },
+      { key: 'pagos_count',       header: 'Nº de pagos',   width: 11, align: 'center' },
+      { key: 'total_pagado',      header: 'Total pagado',  width: 16, format: 'currency', align: 'right' },
     ];
 
-    columns.forEach((col, i) => { ws.getColumn(i + 1).width = col.width; });
+    columns.forEach((c, i) => { ws.getColumn(i + 1).width = c.width; });
 
-    const headerRow = ws.getRow(7);
-    columns.forEach((col, i) => {
+    const headerRow = ws.getRow(5);
+    columns.forEach((c, i) => {
       const cell = headerRow.getCell(i + 1);
-      cell.value = col.header;
-      cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+      cell.value = c.header;
+      cell.font = { name: 'Inter', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: NAVY } };
-      cell.alignment = { horizontal: col.align || 'left', vertical: 'middle' };
+      cell.alignment = { horizontal: c.align || 'left', vertical: 'middle' };
       cell.border = { bottom: { style: 'medium', color: { argb: NAVY_DEEP } } };
     });
-    headerRow.height = 24;
+    headerRow.height = 22;
 
-    // -------- DATOS --------
+    // Datos
     alumnos.forEach((a, idx) => {
-      const row = ws.getRow(8 + idx);
+      const row = ws.getRow(6 + idx);
       const values = {
         id: a.id,
         nombre: a.nombre,
@@ -1055,55 +812,44 @@ document.getElementById('btn-export').addEventListener('click', async () => {
         tutor_nombre: a.tutor_nombre || '',
         tutor_telefono: a.tutor_telefono || '',
         monto_mensual: Number(a.monto_mensual),
-        estado_label: LABEL_ESTADO_ALUMNO[a.estado] || a.estado,
-        pago_label: LABEL_ESTADO_PAGO[a.estado_pago] || a.estado_pago,
-        cuotas_vencidas: a.cuotas_vencidas,
-        cuotas_pendientes: a.cuotas_pendientes,
-        deuda_pendiente: Number(a.deuda_pendiente),
-        proximo_vencimiento: a.proximo_vencimiento ? parseFecha(a.proximo_vencimiento) : '',
-        fecha_alta: a.fecha_alta ? parseFecha(a.fecha_alta) : '',
+        estado_label: LABEL_ESTADO[a.estado] || a.estado,
+        ultimo_pago_fecha: a.ultimo_pago_fecha ? parseFecha(a.ultimo_pago_fecha) : '',
+        pagos_count: a.pagos_count,
+        total_pagado: Number(a.total_pagado),
       };
 
-      const altRowFill = idx % 2 === 1
+      const altFill = idx % 2 === 1
         ? { type: 'pattern', pattern: 'solid', fgColor: { argb: ROW_ALT } }
         : null;
 
       columns.forEach((col, i) => {
         const cell = row.getCell(i + 1);
         cell.value = values[col.key];
-        cell.font = { name: 'Calibri', size: 10 };
+        cell.font = { name: 'Inter', size: 10 };
         cell.alignment = { horizontal: col.align || 'left', vertical: 'middle' };
         if (col.format === 'currency') cell.numFmt = FORMAT_GS;
-        if (col.key === 'proximo_vencimiento' || col.key === 'fecha_alta') cell.numFmt = 'dd/mm/yyyy';
-        if (altRowFill) cell.fill = altRowFill;
+        if (col.key === 'ultimo_pago_fecha') cell.numFmt = 'dd/mm/yyyy';
+        if (altFill) cell.fill = altFill;
         cell.border = { bottom: { style: 'hair', color: { argb: 'FFE1E5EF' } } };
       });
 
-      // Pintar la celda de "Estado pago" según el estado
-      const pagoCell = row.getCell(10);
-      const pagoStyle = {
-        vencido:        { bg: COLOR_DANGER_BG, fg: COLOR_DANGER_FG },
-        proximo:        { bg: COLOR_WARN_BG,   fg: COLOR_WARN_FG },
-        al_dia:         { bg: NAVY_TINT,       fg: NAVY },
-        sin_pendientes: { bg: COLOR_OK_BG,     fg: COLOR_OK_FG },
-      }[a.estado_pago];
-      if (pagoStyle) {
-        pagoCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: pagoStyle.bg } };
-        pagoCell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: pagoStyle.fg } };
-      }
+      // Pintar la celda de estado
+      const estadoCell = row.getCell(9);
+      const isActivo = a.estado === 'activo';
+      estadoCell.fill = {
+        type: 'pattern', pattern: 'solid',
+        fgColor: { argb: isActivo ? COLOR_ACTIVO_BG : COLOR_INACTIVO_BG }
+      };
+      estadoCell.font = {
+        name: 'Inter', size: 10, bold: true,
+        color: { argb: isActivo ? COLOR_ACTIVO_FG : COLOR_INACTIVO_FG }
+      };
 
-      // Pintar deuda en rojo si > 0
-      if (Number(a.deuda_pendiente) > 0) {
-        row.getCell(13).font = { name: 'Calibri', size: 10, bold: true, color: { argb: COLOR_DANGER_FG } };
-      }
-
-      row.height = 22;
+      row.height = 20;
     });
 
-    // -------- AUTOFILTRO --------
-    ws.autoFilter = { from: { row: 7, column: 1 }, to: { row: 7, column: columns.length } };
+    ws.autoFilter = { from: { row: 5, column: 1 }, to: { row: 5, column: columns.length } };
 
-    // -------- DESCARGAR --------
     const buf = await wb.xlsx.writeBuffer();
     const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     const url = URL.createObjectURL(blob);
@@ -1126,20 +872,11 @@ document.getElementById('btn-export').addEventListener('click', async () => {
    ============================================================ */
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
-  if (!pagoModal.classList.contains('hidden')) cerrarModalPago();
-  else if (!cuotaFormModal.classList.contains('hidden')) cerrarModalCuotaForm();
+  if (!pagoFormModal.classList.contains('hidden')) cerrarModalPagoForm();
   else if (!confirmModal.classList.contains('hidden')) cerrarConfirm();
-  else if (!generarModal.classList.contains('hidden')) generarModal.classList.add('hidden');
   else if (!alumnoModal.classList.contains('hidden')) cerrarModalAlumno();
-  else if (!cuotasModal.classList.contains('hidden')) cerrarModalCuotas();
+  else if (!pagosModal.classList.contains('hidden')) cerrarModalPagos();
 });
-
-/* ============================================================
-   AUTOREFRESH
-   ============================================================ */
-setInterval(() => {
-  if (!document.getElementById('dashboard').classList.contains('hidden')) refrescarStats();
-}, 60_000);
 
 /* ============================================================
    INIT

@@ -112,12 +112,13 @@ input { font-family: inherit; }
   font-weight: 500;
 }
 .login-mark h1 {
-  font-family: var(--serif);
-  font-size: 52px;
-  font-weight: 500;
+  font-family: var(--sans);
+  font-size: 44px;
+  font-weight: 700;
   line-height: 1;
-  color: var(--ink);
-  margin-bottom: 8px;
+  color: var(--navy);
+  margin-bottom: 0;
+  letter-spacing: -0.02em;
 }
 .login-mark h1 em {
   font-style: italic;
@@ -125,6 +126,9 @@ input { font-family: inherit; }
   font-weight: 400;
   color: var(--navy);
 }
+/* Variante simple: solo logo + título, sin tag ni sub */
+.login-mark-simple { margin-bottom: 36px; }
+.login-mark-simple .login-logo { margin-bottom: 18px; }
 .login-sub {
   font-size: 11px;
   color: var(--muted);
@@ -916,10 +920,8 @@ main.app-main {
   font-weight: 500;
   border: 1px solid;
 }
-.chip-activo     { background: var(--navy-tint);  color: var(--navy);      border-color: var(--navy-soft); }
-.chip-suspendido { background: #fffbeb;           color: #92400e;          border-color: #fde68a; }
-.chip-retirado   { background: #f5f5f4;           color: var(--muted);     border-color: #d6d3d1; }
-.chip-egresado   { background: #ecfdf5;           color: #065f46;          border-color: #a7f3d0; }
+.chip-activo   { background: var(--navy-tint); color: var(--navy);  border-color: var(--navy-soft); }
+.chip-inactivo { background: #f5f5f4;          color: var(--muted); border-color: #d6d3d1; }
 
 /* "Sin pendientes" badge (al-dia variant más fuerte) */
 .estado-badge.sin-pendientes {
@@ -1095,4 +1097,35 @@ textarea.input {
   resize: vertical;
   min-height: 60px;
   font-family: var(--mono);
+}
+
+/* ============================================================
+   AGREGADOS v3 — versión simplificada
+   ============================================================ */
+
+/* Header de sección sin columna derecha */
+.section-head-simple {
+  display: block;
+  margin-bottom: 28px;
+}
+.section-head-simple h2 {
+  font-family: var(--sans);
+  font-size: 38px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+/* Total pagado en la tabla */
+.td-total { color: var(--success); font-weight: 600; }
+
+/* Texto muted utilitario */
+.text-muted { color: var(--muted); }
+
+/* Mejor línea entre fecha y monto del último pago en la tabla */
+.td-fecha .td-sub {
+  display: block;
+  margin-top: 2px;
+  font-weight: 600;
+  color: var(--ink-soft);
 }
