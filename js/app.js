@@ -6,6 +6,10 @@ const API_URL = "https://api.zarpemos.online";
 const KEY_TOKEN = 'app_token';
 const KEY_USER  = 'app_user';
 
+// Ventana del panel "Faltan por pagar": se listan los ya vencidos y los que
+// vencen dentro de estos días. El resto queda fuera hasta acercarse la fecha.
+const DIAS_AVISO = 10;
+
 /* ============================================================
    ESTADO
    ============================================================ */
@@ -19,6 +23,11 @@ let editandoPagoId  = null;
 let alumnoActualId   = null;
 let alumnoActualData = null;
 let pagosActuales    = [];
+let pagoAlumnoId     = null;
+
+let pendientes        = [];
+let pendientesLejanos = 0;   // deben, pero su vencimiento cae fuera de la ventana
+let cargandoPendientes = false;
 
 let pendingConfirm = null;
 
@@ -79,6 +88,7 @@ const api = {
     const qs = params.toString();
     return this.request(`/api/alumnos${qs ? '?' + qs : ''}`);
   },
+  listarAlumnosActivos()    { return this.request('/api/alumnos?estado=activo'); },
   obtenerAlumno(id)         { return this.request(`/api/alumnos/${id}`); },
   crearAlumno(data)         { return this.request('/api/alumnos',       { method: 'POST', body: JSON.stringify(data) }); },
   actualizarAlumno(id, d)   { return this.request(`/api/alumnos/${id}`, { method: 'PUT',  body: JSON.stringify(d) }); },
@@ -130,7 +140,32 @@ function escapeHtml(str) {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
-function hoyISO() { return new Date().toISOString().slice(0, 10); }
+function hoyISO() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function mesActualISO() { return hoyISO().slice(0, 7); }
+function sumarDias(fechaISO, n) {
+  const d = parseFecha(fechaISO);
+  d.setDate(d.getDate() + n);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function ultimoDiaDelMes(mes) {
+  const [y, m] = mes.split('-').map(Number);
+  return `${mes}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`;
+}
+function nombreMes(mes) {
+  const [y, m] = mes.split('-').map(Number);
+  const txt = new Date(y, m - 1, 1).toLocaleDateString('es-PY', { month: 'long', year: 'numeric' });
+  return txt.charAt(0).toUpperCase() + txt.slice(1);
+}
+function diasHasta(fechaISO) {
+  const d = parseFecha(fechaISO);
+  if (!d) return null;
+  const hoy = new Date();
+  hoy.setHours(0, 0, 0, 0);
+  return Math.round((d - hoy) / 86400000);
+}
 
 const LABEL_ESTADO = { activo: 'Activo', inactivo: 'Inactivo' };
 const LABEL_METODO = {
@@ -209,7 +244,13 @@ async function mostrarDashboard() {
   document.getElementById('dashboard').classList.remove('hidden');
   document.getElementById('header-date').textContent =
     'Resumen general · ' + new Date().toLocaleDateString('es-PY', { day: '2-digit', month: 'long', year: 'numeric' });
-  await recargarAlumnos();
+
+  if (localStorage.getItem('pend_collapsed') === '1') {
+    pendPanel.classList.add('collapsed');
+    document.getElementById('pend-toggle').setAttribute('aria-expanded', 'false');
+  }
+
+  await Promise.all([recargarAlumnos(), cargarPendientes()]);
 }
 
 async function recargarAlumnos() {
@@ -315,6 +356,233 @@ function renderFila(a) {
       </td>
     </tr>`;
 }
+
+/* ============================================================
+   PANEL · FALTAN POR PAGAR
+   Los pagos se imputan al mes adeudado más antiguo (FIFO): un pago
+   atrasado cubre el mes que había quedado impago. El mes consultado
+   es la n-ésima cuota del alumno desde su alta, así que está cubierto
+   cuando acumula al menos n pagos.
+   ============================================================ */
+const pendPanel = document.getElementById('pend-panel');
+
+/** Meses transcurridos entre dos meses 'YYYY-MM'. */
+function mesesEntre(mesA, mesB) {
+  const [ya, ma] = mesA.split('-').map(Number);
+  const [yb, mb] = mesB.split('-').map(Number);
+  return (yb - ya) * 12 + (mb - ma);
+}
+/** Corre `n` meses hacia adelante desde un 'YYYY-MM'. */
+function correrMeses(mes, n) {
+  const [y, m] = mes.split('-').map(Number);
+  const d = new Date(y, m - 1 + n, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/**
+ * Deuda del alumno hasta el mes consultado.
+ * Las cuotas van desde el mes de alta y los pagos cubren las más antiguas,
+ * así que las impagas son las que quedan después de los `pagos_count` primeros.
+ * `vencidos` son las que ya pasaron su tramo de vencimiento; la cuota del mes
+ * en curso no cuenta como atrasada hasta que se cierra su tramo.
+ */
+function deuda(a, mes) {
+  const mesAlta = a.fecha_alta ? a.fecha_alta.slice(0, 7) : mes;
+  const total = mesesEntre(mesAlta, mes) + 1;
+  const adeudados = [];
+  for (let i = a.pagos_count || 0; i < total; i++) adeudados.push(correrMeses(mesAlta, i));
+
+  const vencidos = adeudados.filter(m => diasHasta(rangoVencimiento(a, m).limite) < 0);
+  const cuota = Number(a.monto_mensual || 0);
+
+  return {
+    adeudados,
+    vencidos,
+    // El primero impago marca el vencimiento que se muestra; si está todo al día
+    // hasta hoy, se muestra el tramo del mes consultado.
+    mesVencimiento: adeudados[0] || mes,
+    // Sólo se cobra lo ya vencido; si aún no venció nada, la cuota del mes.
+    monto: (vencidos.length || 1) * cuota,
+  };
+}
+
+async function cargarPendientes() {
+  const mes = mesActualISO();
+
+  cargandoPendientes = true;
+  renderPendientes();
+
+  try {
+    const activos = await api.listarAlumnosActivos();
+    const finMes = ultimoDiaDelMes(mes);
+    // Los dados de alta después del mes consultado no deben nada de ese mes.
+    const elegibles = activos.filter(a => !a.fecha_alta || a.fecha_alta <= finMes);
+    const conDeuda = elegibles.filter(a => deuda(a, mes).adeudados.length > 0);
+
+    // Se listan los vencidos (días negativos) y los que vencen dentro de la ventana.
+    pendientes = conDeuda
+      .filter(a => diasHasta(rangoVencimiento(a, deuda(a, mes).mesVencimiento).limite) <= DIAS_AVISO)
+      .sort((x, y) => {
+        const vx = rangoVencimiento(x, deuda(x, mes).mesVencimiento).limite;
+        const vy = rangoVencimiento(y, deuda(y, mes).mesVencimiento).limite;
+        if (vx !== vy) return vx.localeCompare(vy);  // los vencidos hace más tiempo, primero
+        return x.nombre.localeCompare(y.nombre, 'es');
+      });
+
+    pendientesLejanos = conDeuda.length - pendientes.length;
+  } catch (err) {
+    pendientes = [];
+    pendientesLejanos = 0;
+    showToast('No se pudo calcular los pendientes: ' + err.message, 'error');
+  } finally {
+    cargandoPendientes = false;
+    renderPendientes();
+  }
+}
+
+function renderPendientes() {
+  const badge = document.getElementById('pend-badge');
+  const summary = document.getElementById('pend-summary');
+  const list = document.getElementById('pend-list');
+
+  if (cargandoPendientes) {
+    badge.className = 'pend-badge loading';
+    badge.textContent = 'Calculando…';
+    summary.innerHTML = '';
+    list.innerHTML = `<div class="pend-empty"><p class="pend-empty-sub">Revisando pagos del mes…</p></div>`;
+    return;
+  }
+
+  const mes = mesActualISO();
+  const totalPendiente = pendientes.reduce((s, a) => s + deuda(a, mes).monto, 0);
+  const hayPendientes = pendientes.length > 0;
+  // El rojo se reserva para la deuda vencida; lo que sólo está pendiente va en navy.
+  const conDeuda = pendientes.filter(a => deuda(a, mes).vencidos.length > 0).length;
+
+  pendPanel.classList.toggle('con-deuda', conDeuda > 0);
+  badge.className = `pend-badge ${conDeuda > 0 ? 'deuda' : (hayPendientes ? '' : (pendientesLejanos ? '' : 'ok'))}`;
+  badge.textContent = hayPendientes
+    ? `${pendientes.length} pendiente${pendientes.length === 1 ? '' : 's'}`
+    : (pendientesLejanos ? 'Sin vencimientos próximos' : 'Todos al día');
+
+  summary.innerHTML = `
+    <div class="pend-summary-item">
+      <span class="pend-summary-label">Vencen hasta</span>
+      <span class="pend-summary-value">${formatearFecha(sumarDias(hoyISO(), DIAS_AVISO))}</span>
+    </div>
+    <div class="pend-summary-item">
+      <span class="pend-summary-label">Falta cobrar</span>
+      <span class="pend-summary-value ${conDeuda ? 'danger' : ''}">${formatearMonto(totalPendiente)}</span>
+    </div>
+    <div class="pend-summary-item">
+      <span class="pend-summary-label">Con deuda vencida</span>
+      <span class="pend-summary-value ${conDeuda ? 'danger' : ''}">${conDeuda}</span>
+    </div>`;
+
+  const notaLejanos = pendientesLejanos
+    ? `<p class="pend-nota">${pendientesLejanos} alumno${pendientesLejanos === 1 ? '' : 's'} más
+       ${pendientesLejanos === 1 ? 'vence' : 'vencen'} después del
+       ${formatearFecha(sumarDias(hoyISO(), DIAS_AVISO))}</p>`
+    : '';
+
+  if (!hayPendientes) {
+    list.innerHTML = `
+      <div class="pend-empty">
+        <p class="pend-empty-title">${pendientesLejanos
+          ? `Nadie vence en los próximos ${DIAS_AVISO} días`
+          : `Sin pendientes en ${nombreMes(mesActualISO())}`}</p>
+        <p class="pend-empty-sub">${pendientesLejanos
+          ? 'No hay cobros urgentes por ahora'
+          : 'Todos los alumnos activos registraron su pago del mes'}</p>
+      </div>${notaLejanos}`;
+    return;
+  }
+
+  list.innerHTML = pendientes.map(renderItemPendiente).join('') + notaLejanos;
+
+  list.querySelectorAll('[data-pend-action="pagar"]').forEach(b =>
+    b.addEventListener('click', () => {
+      const a = pendientes.find(x => x.id === parseInt(b.dataset.id, 10));
+      if (a) abrirModalCrearPago(a);
+    }));
+  list.querySelectorAll('[data-pend-action="historial"]').forEach(b =>
+    b.addEventListener('click', () => abrirModalPagos(parseInt(b.dataset.id, 10))));
+}
+
+/**
+ * El vencimiento se agrupa por tramo del mes según el día de alta:
+ * alta del 1 al 10 → vence entre el 1 y el 10; del 11 al 20 → entre el 10 y el 20;
+ * del 21 en adelante → entre el 20 y el fin de mes. La fecha límite es el cierre
+ * del tramo. Sin fecha de alta se toma el último tramo.
+ */
+function rangoVencimiento(a, mesCuota) {
+  const mes = mesCuota || mesActualISO();
+  const [y, m] = mes.split('-').map(Number);
+  const finDeMes = new Date(y, m, 0).getDate();
+  const diaAlta = a.fecha_alta ? Number(a.fecha_alta.slice(8, 10)) : finDeMes;
+
+  let desde, hasta;
+  if (diaAlta <= 10)      { desde = 1;  hasta = 10; }
+  else if (diaAlta <= 20) { desde = 10; hasta = 20; }
+  else                    { desde = 20; hasta = finDeMes; }
+
+  const dd = (n) => String(n).padStart(2, '0');
+  const limite = `${mes}-${dd(hasta)}`;
+  return { limite, etiqueta: `${dd(desde)} al ${formatearFecha(limite)}` };
+}
+
+function textoVencimiento(a, mesCuota) {
+  const { limite, etiqueta } = rangoVencimiento(a, mesCuota);
+  const dias = diasHasta(limite);
+  if (dias < 0)   return { texto: `Venció hace ${-dias} día${dias === -1 ? '' : 's'} · del ${etiqueta}`, clase: 'danger' };
+  if (dias === 0) return { texto: `Último día para pagar · del ${etiqueta}`, clase: 'proximo' };
+  return { texto: `Vence en ${dias} día${dias === 1 ? '' : 's'} · del ${etiqueta}`, clase: dias <= 5 ? 'proximo' : '' };
+}
+
+/** "julio" / "julio y agosto" / "mayo, junio y julio" */
+function listarMeses(meses) {
+  const nombres = meses.map(m => nombreMes(m).replace(/ de \d{4}$/, '').toLowerCase());
+  if (nombres.length <= 1) return nombres[0] || '';
+  return `${nombres.slice(0, -1).join(', ')} y ${nombres[nombres.length - 1]}`;
+}
+
+function renderItemPendiente(a) {
+  const contacto = a.telefono || a.tutor_telefono || a.email || '';
+  const { vencidos, mesVencimiento, monto } = deuda(a, mesActualISO());
+  const venc = textoVencimiento(a, mesVencimiento);
+  const ultimo = a.ultimo_pago_fecha
+    ? `Últ. pago: ${formatearFecha(a.ultimo_pago_fecha)}`
+    : 'Nunca registró un pago';
+
+  return `
+    <div class="pend-item ${venc.clase === 'danger' ? 'vencido' : ''}">
+      <div class="pend-item-main">
+        <p class="pend-name">${escapeHtml(a.nombre)}</p>
+        <p class="pend-meta">
+          ${a.cedula ? `<span>CI ${escapeHtml(a.cedula)}</span>` : ''}
+          ${contacto ? `<span>${escapeHtml(contacto)}</span>` : ''}
+          <span>${ultimo}</span>
+          <span class="${venc.clase}">${venc.texto}</span>
+          ${vencidos.length ? `<span class="danger">Debe ${listarMeses(vencidos)}</span>` : ''}
+        </p>
+      </div>
+      <div class="pend-item-right">
+        <span class="pend-cuota ${vencidos.length ? 'deuda' : ''}">${formatearMonto(monto)}</span>
+        <button class="btn btn-primary btn-sm" data-pend-action="pagar" data-id="${a.id}">Registrar pago</button>
+        <button class="icon-btn" data-pend-action="historial" data-id="${a.id}" title="Ver historial" aria-label="Ver historial">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+        </button>
+      </div>
+    </div>`;
+}
+
+document.getElementById('pend-toggle').addEventListener('click', () => {
+  const colapsado = pendPanel.classList.toggle('collapsed');
+  document.getElementById('pend-toggle').setAttribute('aria-expanded', String(!colapsado));
+  localStorage.setItem('pend_collapsed', colapsado ? '1' : '0');
+});
+
+document.getElementById('pend-refresh').addEventListener('click', cargarPendientes);
 
 /* ============================================================
    FILTROS Y BÚSQUEDA
@@ -452,7 +720,7 @@ alumnoForm.addEventListener('submit', async (e) => {
       showToast(`Alumno "${nombre}" actualizado`, 'success');
     }
     cerrarModalAlumno();
-    await recargarAlumnos();
+    await Promise.all([recargarAlumnos(), cargarPendientes()]);
   } catch (err) {
     showToast(err.message, 'error');
   } finally {
@@ -574,16 +842,18 @@ async function refrescarPagosActuales() {
 const pagoFormModal = document.getElementById('pago-form-modal');
 const pagoForm = document.getElementById('pago-form');
 
-function abrirModalCrearPago() {
-  if (!alumnoActualId || !alumnoActualData) return;
+function abrirModalCrearPago(alumno, fechaSugerida) {
+  const data = alumno || alumnoActualData;
+  if (!data) return;
+  pagoAlumnoId = data.id;
   editandoPagoId = null;
   document.getElementById('pago-form-eyebrow').textContent = 'Nuevo pago';
-  document.getElementById('pago-form-title').textContent = `Pago de ${alumnoActualData.nombre}`;
+  document.getElementById('pago-form-title').textContent = `Pago de ${data.nombre}`;
   document.getElementById('pago-form-save').textContent = 'Registrar pago';
   pagoForm.reset();
   document.getElementById('pago-id').value = '';
-  document.getElementById('pago-monto').value = formatearNumero(alumnoActualData.monto_mensual);
-  document.getElementById('pago-fecha').value = hoyISO();
+  document.getElementById('pago-monto').value = formatearNumero(data.monto_mensual);
+  document.getElementById('pago-fecha').value = fechaSugerida || hoyISO();
   document.getElementById('pago-concepto').value = 'Cuota mensual';
   limpiarErroresPago();
   pagoFormModal.classList.remove('hidden');
@@ -594,6 +864,7 @@ function abrirModalEditarPago(pagoId) {
   const p = pagosActuales.find(x => x.id === pagoId);
   if (!p) return;
   editandoPagoId = pagoId;
+  pagoAlumnoId = alumnoActualId;
   document.getElementById('pago-form-eyebrow').textContent = 'Edición';
   document.getElementById('pago-form-title').textContent = 'Editar pago';
   document.getElementById('pago-form-save').textContent = 'Guardar cambios';
@@ -658,15 +929,15 @@ pagoForm.addEventListener('submit', async (e) => {
   btn.disabled = true; btn.textContent = 'Guardando…';
   try {
     if (editandoPagoId == null) {
-      await api.crearPago(alumnoActualId, payload);
+      await api.crearPago(pagoAlumnoId, payload);
       showToast('Pago registrado', 'success');
     } else {
       await api.actualizarPago(editandoPagoId, payload);
       showToast('Pago actualizado', 'success');
     }
     cerrarModalPagoForm();
-    await refrescarPagosActuales();
-    await recargarAlumnos();
+    if (!pagosModal.classList.contains('hidden')) await refrescarPagosActuales();
+    await Promise.all([recargarAlumnos(), cargarPendientes()]);
   } catch (err) {
     showToast(err.message, 'error');
   } finally {
@@ -687,7 +958,7 @@ function pedirEliminarAlumno(id) {
     action: async () => {
       await api.eliminarAlumno(id);
       showToast(`Alumno "${a ? a.nombre : ''}" eliminado`, 'success');
-      await recargarAlumnos();
+      await Promise.all([recargarAlumnos(), cargarPendientes()]);
     },
   });
 }
@@ -703,7 +974,7 @@ function pedirEliminarPago(pagoId) {
       await api.eliminarPago(pagoId);
       showToast('Pago eliminado', 'success');
       await refrescarPagosActuales();
-      await recargarAlumnos();
+      await Promise.all([recargarAlumnos(), cargarPendientes()]);
     },
   });
 }

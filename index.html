@@ -83,6 +83,29 @@
       </div>
     </div>
 
+    <!-- ============================================================
+         PANEL: FALTAN POR PAGAR
+         ============================================================ -->
+    <section class="pend-panel" id="pend-panel">
+      <div class="pend-head">
+        <button type="button" class="pend-toggle" id="pend-toggle" aria-expanded="true">
+          <svg class="pend-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+          <span class="pend-title">Faltan por pagar</span>
+          <span class="pend-badge" id="pend-badge">—</span>
+        </button>
+        <div class="pend-controls">
+          <button type="button" id="pend-refresh" class="icon-btn" title="Actualizar" aria-label="Actualizar">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="pend-body" id="pend-body">
+        <div class="pend-summary" id="pend-summary"></div>
+        <div class="pend-list" id="pend-list"></div>
+      </div>
+    </section>
+
     <!-- Action bar -->
     <div class="action-bar">
       <div class="action-bar-row">
