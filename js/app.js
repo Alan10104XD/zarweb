@@ -25,9 +25,15 @@ let alumnoActualData = null;
 let pagosActuales    = [];
 let pagoAlumnoId     = null;
 
-let pendientes        = [];
+let pendientes        = [];  // deudores dentro de la ventana DIAS_AVISO
+let deudoresTodos     = [];  // todos los deudores, sin límite de ventana
 let pendientesLejanos = 0;   // deben, pero su vencimiento cae fuera de la ventana
 let cargandoPendientes = false;
+let filtroPend    = 'todos'; // todos | vencidos | proximos | semana
+
+// Padrón completo, sin los filtros de la tabla.
+let padron = [];
+let vistaActual = 'pendientes';
 
 let pendingConfirm = null;
 
@@ -88,7 +94,9 @@ const api = {
     const qs = params.toString();
     return this.request(`/api/alumnos${qs ? '?' + qs : ''}`);
   },
-  listarAlumnosActivos()    { return this.request('/api/alumnos?estado=activo'); },
+  // Sin filtros: el panel de pendientes necesita el padrón completo aunque
+  // la tabla esté filtrada o con una búsqueda activa.
+  listarTodos()             { return this.request('/api/alumnos'); },
   obtenerAlumno(id)         { return this.request(`/api/alumnos/${id}`); },
   crearAlumno(data)         { return this.request('/api/alumnos',       { method: 'POST', body: JSON.stringify(data) }); },
   actualizarAlumno(id, d)   { return this.request(`/api/alumnos/${id}`, { method: 'PUT',  body: JSON.stringify(d) }); },
@@ -145,11 +153,6 @@ function hoyISO() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 function mesActualISO() { return hoyISO().slice(0, 7); }
-function sumarDias(fechaISO, n) {
-  const d = parseFecha(fechaISO);
-  d.setDate(d.getDate() + n);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
 function ultimoDiaDelMes(mes) {
   const [y, m] = mes.split('-').map(Number);
   return `${mes}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`;
@@ -245,13 +248,40 @@ async function mostrarDashboard() {
   document.getElementById('header-date').textContent =
     'Resumen general · ' + new Date().toLocaleDateString('es-PY', { day: '2-digit', month: 'long', year: 'numeric' });
 
-  if (localStorage.getItem('pend_collapsed') === '1') {
-    pendPanel.classList.add('collapsed');
-    document.getElementById('pend-toggle').setAttribute('aria-expanded', 'false');
-  }
-
+  cambiarVista(vistaDesdeHash(), { silencioso: true });
   await Promise.all([recargarAlumnos(), cargarPendientes()]);
 }
+
+/* ============================================================
+   NAVEGACIÓN POR VISTAS
+   ============================================================ */
+const VISTAS = ['pendientes', 'alumnos'];
+
+function vistaDesdeHash() {
+  const h = (location.hash || '').replace('#', '');
+  return VISTAS.includes(h) ? h : 'pendientes';
+}
+
+function cambiarVista(vista, { silencioso = false } = {}) {
+  if (!VISTAS.includes(vista)) vista = 'pendientes';
+  vistaActual = vista;
+
+  VISTAS.forEach(v =>
+    document.getElementById(`view-${v}`).classList.toggle('hidden', v !== vista));
+  document.querySelectorAll('[data-view]').forEach(t =>
+    t.classList.toggle('active', t.dataset.view === vista));
+
+  if (!silencioso && location.hash !== `#${vista}`) location.hash = vista;
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+document.getElementById('app-nav').addEventListener('click', (e) => {
+  const tab = e.target.closest('[data-view]');
+  if (tab) cambiarVista(tab.dataset.view);
+});
+
+window.addEventListener('hashchange', () =>
+  cambiarVista(vistaDesdeHash(), { silencioso: true }));
 
 async function recargarAlumnos() {
   cargando = true; renderEstadoCarga();
@@ -413,101 +443,137 @@ async function cargarPendientes() {
   renderPendientes();
 
   try {
-    const activos = await api.listarAlumnosActivos();
+    // Un solo request: alimenta el panel y el contador de la pestaña Alumnos.
+    padron = await api.listarTodos();
     const finMes = ultimoDiaDelMes(mes);
+    const activos = padron.filter(a => a.estado === 'activo');
     // Los dados de alta después del mes consultado no deben nada de ese mes.
     const elegibles = activos.filter(a => !a.fecha_alta || a.fecha_alta <= finMes);
     const conDeuda = elegibles.filter(a => deuda(a, mes).adeudados.length > 0);
 
-    // Se listan los vencidos (días negativos) y los que vencen dentro de la ventana.
-    pendientes = conDeuda
-      .filter(a => diasHasta(rangoVencimiento(a, deuda(a, mes).mesVencimiento).limite) <= DIAS_AVISO)
-      .sort((x, y) => {
-        const vx = rangoVencimiento(x, deuda(x, mes).mesVencimiento).limite;
-        const vy = rangoVencimiento(y, deuda(y, mes).mesVencimiento).limite;
-        if (vx !== vy) return vx.localeCompare(vy);  // los vencidos hace más tiempo, primero
-        return x.nombre.localeCompare(y.nombre, 'es');
-      });
+    // Los vencidos hace más tiempo van primero; a igual fecha, alfabético.
+    const porVencimiento = (x, y) => {
+      const vx = rangoVencimiento(x, deuda(x, mes).mesVencimiento).limite;
+      const vy = rangoVencimiento(y, deuda(y, mes).mesVencimiento).limite;
+      if (vx !== vy) return vx.localeCompare(vy);
+      return x.nombre.localeCompare(y.nombre, 'es');
+    };
 
-    pendientesLejanos = conDeuda.length - pendientes.length;
+    deudoresTodos = [...conDeuda].sort(porVencimiento);
+    // Se listan los vencidos (días negativos) y los que vencen dentro de la ventana.
+    pendientes = deudoresTodos.filter(a =>
+      diasHasta(rangoVencimiento(a, deuda(a, mes).mesVencimiento).limite) <= DIAS_AVISO);
+
+    pendientesLejanos = deudoresTodos.length - pendientes.length;
   } catch (err) {
+    padron = [];
     pendientes = [];
+    deudoresTodos = [];
     pendientesLejanos = 0;
     showToast('No se pudo calcular los pendientes: ' + err.message, 'error');
   } finally {
     cargandoPendientes = false;
     renderPendientes();
+    renderContadoresNav();
   }
 }
 
+function renderContadoresNav() {
+  document.getElementById('nav-count-alumnos').textContent = padron.length || '';
+  document.getElementById('nav-count-pendientes').textContent =
+    cargandoPendientes ? '' : (pendientes.length || '');
+}
+
+/** Días que faltan para el cierre del tramo de la cuota más antigua impaga. */
+function diasParaVencer(a, mes) {
+  return diasHasta(rangoVencimiento(a, deuda(a, mes || mesActualISO()).mesVencimiento).limite);
+}
+
+
+
 function renderPendientes() {
-  const badge = document.getElementById('pend-badge');
-  const summary = document.getElementById('pend-summary');
-  const list = document.getElementById('pend-list');
+  const badge   = document.getElementById('pend-badge');
+  const filtros = document.getElementById('pend-filtros');
+  const list    = document.getElementById('pend-list');
 
   if (cargandoPendientes) {
     badge.className = 'pend-badge loading';
-    badge.textContent = 'Calculando…';
-    summary.innerHTML = '';
+    badge.textContent = '…';
+    filtros.innerHTML = '';
     list.innerHTML = `<div class="pend-empty"><p class="pend-empty-sub">Revisando pagos del mes…</p></div>`;
     return;
   }
 
   const mes = mesActualISO();
-  const totalPendiente = pendientes.reduce((s, a) => s + deuda(a, mes).monto, 0);
-  const hayPendientes = pendientes.length > 0;
-  // El rojo se reserva para la deuda vencida; lo que sólo está pendiente va en navy.
-  const conDeuda = pendientes.filter(a => deuda(a, mes).vencidos.length > 0).length;
+  const base = pendientes;
 
-  pendPanel.classList.toggle('con-deuda', conDeuda > 0);
-  badge.className = `pend-badge ${conDeuda > 0 ? 'deuda' : (hayPendientes ? '' : (pendientesLejanos ? '' : 'ok'))}`;
-  badge.textContent = hayPendientes
-    ? `${pendientes.length} pendiente${pendientes.length === 1 ? '' : 's'}`
-    : (pendientesLejanos ? 'Sin vencimientos próximos' : 'Todos al día');
+  const vencidos = base.filter(a => deuda(a, mes).vencidos.length > 0);
+  const proximos = base.filter(a => deuda(a, mes).vencidos.length === 0);
+  const semana   = proximos.filter(a => diasParaVencer(a, mes) <= 7);
 
-  summary.innerHTML = `
-    <div class="pend-summary-item">
-      <span class="pend-summary-label">Vencen hasta</span>
-      <span class="pend-summary-value">${formatearFecha(sumarDias(hoyISO(), DIAS_AVISO))}</span>
-    </div>
-    <div class="pend-summary-item">
-      <span class="pend-summary-label">Falta cobrar</span>
-      <span class="pend-summary-value ${conDeuda ? 'danger' : ''}">${formatearMonto(totalPendiente)}</span>
-    </div>
-    <div class="pend-summary-item">
-      <span class="pend-summary-label">Con deuda vencida</span>
-      <span class="pend-summary-value ${conDeuda ? 'danger' : ''}">${conDeuda}</span>
-    </div>`;
+  pendPanel.classList.toggle('con-deuda', vencidos.length > 0);
+  badge.className = `pend-badge ${vencidos.length ? 'deuda' : (base.length ? '' : 'ok')}`;
+  badge.textContent = base.length;
 
-  const notaLejanos = pendientesLejanos
-    ? `<p class="pend-nota">${pendientesLejanos} alumno${pendientesLejanos === 1 ? '' : 's'} más
-       ${pendientesLejanos === 1 ? 'vence' : 'vencen'} después del
-       ${formatearFecha(sumarDias(hoyISO(), DIAS_AVISO))}</p>`
-    : '';
+  /* --- Filtros rápidos (alternables: volver a pulsarlos muestra todo) --- */
+  const chips = [
+    { k: 'vencidos', txt: 'Vencidos',          n: vencidos.length, punto: 'rojo' },
+    { k: 'semana',   txt: 'Vence esta semana', n: semana.length,   punto: 'ambar' },
+  ];
+  filtros.innerHTML = chips.map(c => `
+    <button type="button" class="filter-chip pend-chip ${filtroPend === c.k ? 'active' : ''}"
+            data-filtro-pend="${c.k}" ${c.n === 0 ? 'disabled' : ''}>
+      <span class="pend-punto ${c.punto}"></span>
+      ${c.txt} <span class="count">(${c.n})</span>
+    </button>`).join('');
 
-  if (!hayPendientes) {
+  /* --- Lista agrupada --- */
+  const grupos = {
+    vencidos: [['vencidos', vencidos]],
+    semana:   [['semana', semana]],
+  }[filtroPend] || [['vencidos', vencidos], ['proximos', proximos]];
+
+  const TITULOS = {
+    vencidos: { punto: 'rojo',  txt: 'Vencidos' },
+    proximos: { punto: 'azul',  txt: 'Próximos vencimientos' },
+    semana:   { punto: 'ambar', txt: 'Vence esta semana' },
+  };
+
+  const visibles = grupos.reduce((n, [, arr]) => n + arr.length, 0);
+
+  if (!visibles) {
     list.innerHTML = `
       <div class="pend-empty">
-        <p class="pend-empty-title">${pendientesLejanos
-          ? `Nadie vence en los próximos ${DIAS_AVISO} días`
-          : `Sin pendientes en ${nombreMes(mesActualISO())}`}</p>
-        <p class="pend-empty-sub">${pendientesLejanos
-          ? 'No hay cobros urgentes por ahora'
-          : 'Todos los alumnos activos registraron su pago del mes'}</p>
-      </div>${notaLejanos}`;
+        <p class="pend-empty-title">${base.length
+          ? 'Sin resultados para este filtro'
+          : (pendientesLejanos
+              ? `Nadie vence en los próximos ${DIAS_AVISO} días`
+              : `Sin pendientes en ${nombreMes(mes)}`)}</p>
+        <p class="pend-empty-sub">${base.length
+          ? 'Probá con otro filtro'
+          : (pendientesLejanos
+              ? 'No hay cobros urgentes por ahora'
+              : 'Todos los alumnos activos registraron su pago del mes')}</p>
+      </div>`;
+    cablearAccionesPendientes(list);
     return;
   }
 
-  list.innerHTML = pendientes.map(renderItemPendiente).join('') + notaLejanos;
+  list.innerHTML = grupos
+    .filter(([, arr]) => arr.length)
+    .map(([k, arr]) => `
+      <div class="pend-grupo">
+        <p class="pend-grupo-head">
+          <span class="pend-punto ${TITULOS[k].punto}"></span>
+          ${TITULOS[k].txt}
+          <span class="pend-grupo-count">${arr.length}</span>
+        </p>
+        ${arr.map(renderItemPendiente).join('')}
+      </div>`).join('');
 
-  list.querySelectorAll('[data-pend-action="pagar"]').forEach(b =>
-    b.addEventListener('click', () => {
-      const a = pendientes.find(x => x.id === parseInt(b.dataset.id, 10));
-      if (a) abrirModalCrearPago(a);
-    }));
-  list.querySelectorAll('[data-pend-action="historial"]').forEach(b =>
-    b.addEventListener('click', () => abrirModalPagos(parseInt(b.dataset.id, 10))));
+  cablearAccionesPendientes(list);
 }
+
 
 /**
  * El vencimiento se agrupa por tramo del mes según el día de alta:
@@ -531,13 +597,6 @@ function rangoVencimiento(a, mesCuota) {
   return { limite, etiqueta: `${dd(desde)} al ${formatearFecha(limite)}` };
 }
 
-function textoVencimiento(a, mesCuota) {
-  const { limite, etiqueta } = rangoVencimiento(a, mesCuota);
-  const dias = diasHasta(limite);
-  if (dias < 0)   return { texto: `Venció hace ${-dias} día${dias === -1 ? '' : 's'} · del ${etiqueta}`, clase: 'danger' };
-  if (dias === 0) return { texto: `Último día para pagar · del ${etiqueta}`, clase: 'proximo' };
-  return { texto: `Vence en ${dias} día${dias === 1 ? '' : 's'} · del ${etiqueta}`, clase: dias <= 5 ? 'proximo' : '' };
-}
 
 /** "julio" / "julio y agosto" / "mayo, junio y julio" */
 function listarMeses(meses) {
@@ -546,43 +605,102 @@ function listarMeses(meses) {
   return `${nombres.slice(0, -1).join(', ')} y ${nombres[nombres.length - 1]}`;
 }
 
+/** Estado corto del vencimiento: "Vencido hace 6 días" / "Vence en 4 días". */
+function estadoVencimiento(a, mesCuota) {
+  const dias = diasHasta(rangoVencimiento(a, mesCuota).limite);
+  if (dias < 0)   return { texto: `Vencido hace ${-dias} día${dias === -1 ? '' : 's'}`, clase: 'danger' };
+  if (dias === 0) return { texto: 'Último día para pagar', clase: 'warn' };
+  return { texto: `Vence en ${dias} día${dias === 1 ? '' : 's'}`, clase: dias <= 7 ? 'warn' : 'proximo' };
+}
+
 function renderItemPendiente(a) {
-  const contacto = a.telefono || a.tutor_telefono || a.email || '';
-  const { vencidos, mesVencimiento, monto } = deuda(a, mesActualISO());
-  const venc = textoVencimiento(a, mesVencimiento);
+  const { vencidos, adeudados, mesVencimiento, monto } = deuda(a, mesActualISO());
+  const est = estadoVencimiento(a, mesVencimiento);
+  const { limite } = rangoVencimiento(a, mesVencimiento);
   const ultimo = a.ultimo_pago_fecha
-    ? `Últ. pago: ${formatearFecha(a.ultimo_pago_fecha)}`
+    ? `Últ. pago ${formatearFecha(a.ultimo_pago_fecha)}`
     : 'Nunca registró un pago';
+  const debe = listarMeses(vencidos.length ? vencidos : adeudados);
 
   return `
-    <div class="pend-item ${venc.clase === 'danger' ? 'vencido' : ''}">
+    <div class="pend-item ${vencidos.length ? 'vencido' : ''}">
       <div class="pend-item-main">
         <p class="pend-name">${escapeHtml(a.nombre)}</p>
         <p class="pend-meta">
-          ${a.cedula ? `<span>CI ${escapeHtml(a.cedula)}</span>` : ''}
-          ${contacto ? `<span>${escapeHtml(contacto)}</span>` : ''}
           <span>${ultimo}</span>
-          <span class="${venc.clase}">${venc.texto}</span>
-          ${vencidos.length ? `<span class="danger">Debe ${listarMeses(vencidos)}</span>` : ''}
+          ${debe ? `<span class="sep">·</span><span>Debe ${debe}</span>` : ''}
+        </p>
+        <p class="pend-estado ${est.clase}">
+          ${est.texto}
+          <span class="pend-fecha">Vencimiento ${formatearFecha(limite)}</span>
         </p>
       </div>
       <div class="pend-item-right">
         <span class="pend-cuota ${vencidos.length ? 'deuda' : ''}">${formatearMonto(monto)}</span>
-        <button class="btn btn-primary btn-sm" data-pend-action="pagar" data-id="${a.id}">Registrar pago</button>
-        <button class="icon-btn" data-pend-action="historial" data-id="${a.id}" title="Ver historial" aria-label="Ver historial">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
-        </button>
+        <div class="pend-item-acciones">
+          <button class="btn btn-primary btn-sm btn-plain" data-pend-action="pagar" data-id="${a.id}">Registrar pago</button>
+          <div class="pend-menu">
+            <button class="icon-btn pend-menu-btn" data-pend-action="menu" data-id="${a.id}"
+                    title="Más acciones" aria-label="Más acciones" aria-haspopup="true" aria-expanded="false">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg>
+            </button>
+            <div class="pend-menu-pop hidden">
+              <button type="button" data-pend-action="historial" data-id="${a.id}">Ver historial</button>
+              <button type="button" data-pend-action="pagar" data-id="${a.id}">Registrar pago</button>
+              <button type="button" data-pend-action="editar" data-id="${a.id}">Editar alumno</button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>`;
 }
 
-document.getElementById('pend-toggle').addEventListener('click', () => {
-  const colapsado = pendPanel.classList.toggle('collapsed');
-  document.getElementById('pend-toggle').setAttribute('aria-expanded', String(!colapsado));
-  localStorage.setItem('pend_collapsed', colapsado ? '1' : '0');
+/* ------------------------------------------------------------
+   Acciones de la lista (delegación: la lista se re-renderiza entera)
+   ------------------------------------------------------------ */
+function cerrarMenusPendientes() {
+  document.querySelectorAll('.pend-menu-pop').forEach(p => p.classList.add('hidden'));
+  document.querySelectorAll('.pend-menu-btn').forEach(b => b.setAttribute('aria-expanded', 'false'));
+}
+
+function cablearAccionesPendientes(list) {
+  const buscar = (id) => deudoresTodos.find(x => x.id === id) || pendientes.find(x => x.id === id);
+
+  list.querySelectorAll('[data-pend-action]').forEach(b => {
+    const id = parseInt(b.dataset.id, 10);
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const accion = b.dataset.pendAction;
+
+      if (accion === 'menu') {
+        const pop = b.parentElement.querySelector('.pend-menu-pop');
+        const abierto = !pop.classList.contains('hidden');
+        cerrarMenusPendientes();
+        pop.classList.toggle('hidden', abierto);
+        b.setAttribute('aria-expanded', String(!abierto));
+        return;
+      }
+
+      cerrarMenusPendientes();
+      if (accion === 'pagar')     { const a = buscar(id); if (a) abrirModalCrearPago(a); }
+      if (accion === 'historial') abrirModalPagos(id);
+      if (accion === 'editar')    abrirModalEditarAlumno(id);
+    });
+  });
+}
+
+// El menú se cierra al hacer clic fuera o con Escape.
+document.addEventListener('click', cerrarMenusPendientes);
+
+document.getElementById('pend-filtros').addEventListener('click', (e) => {
+  const chip = e.target.closest('[data-filtro-pend]');
+  if (!chip || chip.disabled) return;
+  // Volver a pulsar el filtro activo lo quita y se listan todos otra vez.
+  const k = chip.dataset.filtroPend;
+  filtroPend = filtroPend === k ? 'todos' : k;
+  renderPendientes();
 });
 
-document.getElementById('pend-refresh').addEventListener('click', cargarPendientes);
 
 /* ============================================================
    FILTROS Y BÚSQUEDA
@@ -1160,6 +1278,7 @@ document.getElementById('btn-export').addEventListener('click', async () => {
    ============================================================ */
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
+  cerrarMenusPendientes();
   if (!pagoFormModal.classList.contains('hidden')) cerrarModalPagoForm();
   else if (!confirmModal.classList.contains('hidden')) cerrarConfirm();
   else if (!alumnoModal.classList.contains('hidden')) cerrarModalAlumno();

@@ -1107,12 +1107,20 @@ textarea.input {
 
 /* Header de sección sin columna derecha */
 .section-head-simple {
-  display: block;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
   margin-bottom: 28px;
 }
 .section-head-simple h2 {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
   font-family: var(--sans);
-  font-size: 38px;
+  font-size: 34px;
   font-weight: 700;
   letter-spacing: -0.02em;
   color: var(--ink);
@@ -1133,56 +1141,31 @@ textarea.input {
 }
 
 /* ============================================================
-   PANEL · FALTAN POR PAGAR
+   VISTA PENDIENTES · cobranzas
    ============================================================ */
-.pend-panel {
-  background: var(--paper);
-  border: 1px solid var(--line);
-  border-left: 4px solid var(--navy);
-  margin-bottom: 24px;
-}
-/* El rojo aparece sólo cuando hay cuotas vencidas. */
-.pend-panel.con-deuda { border-left-color: var(--danger); }
 
-.pend-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 12px;
-  padding: 16px 20px;
+/* La vista se lee mejor en una columna más angosta que la tabla de alumnos. */
+#view-pendientes {
+  max-width: 1060px;
+  margin: 0 auto;
 }
-.pend-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  color: var(--ink);
-  padding: 0;
-  min-width: 0;
-}
-.pend-chevron {
+
+.section-sub {
+  font-size: 13px;
   color: var(--muted);
-  flex-shrink: 0;
-  transition: transform 0.15s ease;
+  margin-top: 6px;
 }
-.pend-panel.collapsed .pend-chevron { transform: rotate(-90deg); }
-.pend-panel.collapsed .pend-body { display: none; }
 
-.pend-title {
-  font-family: var(--sans);
-  font-size: 17px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-}
 .pend-badge {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  min-width: 28px;
   padding: 3px 10px;
   border-radius: 999px;
-  font-size: 10px;
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0;
   background: var(--navy-tint);
   color: var(--navy);
   border: 1px solid var(--navy-tint-2);
@@ -1192,58 +1175,89 @@ textarea.input {
 .pend-badge.ok      { background: #ecfdf5; color: #065f46; border-color: #a7f3d0; }
 .pend-badge.loading { background: var(--bg); color: var(--muted); border-color: var(--line); }
 
-.pend-controls {
+/* ---------- Filtros rápidos ---------- */
+.pend-filtros {
   display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.pend-body {
-  padding: 0 20px 20px;
-}
-
-.pend-summary {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 14px;
-  padding: 14px 18px;
-  background: var(--navy-tint);
-  border: 1px solid var(--navy-tint-2);
-  border-radius: 12px;
+  gap: 6px;
+  flex-wrap: wrap;
   margin-bottom: 16px;
 }
-.pend-summary:empty { display: none; }
-.pend-summary-item { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.pend-summary-label {
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
+.pend-filtros:empty { display: none; }
+
+.pend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: none;
   font-weight: 600;
 }
-.pend-summary-value {
-  font-size: 17px;
-  font-weight: 700;
-  color: var(--ink);
-  line-height: 1.2;
-  letter-spacing: -0.01em;
+.pend-chip:disabled { opacity: 0.45; cursor: not-allowed; }
+.pend-chip:disabled:hover { border-color: #c9d1e3; color: var(--ink-soft); }
+.pend-chip .count { font-weight: 500; }
+
+/* Punto de color: identifica el estado sin teñir todo el componente. */
+.pend-punto {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
-.pend-summary-value.danger { color: var(--danger); }
+.pend-punto.rojo  { background: var(--danger); }
+.pend-punto.azul  { background: var(--navy-soft); }
+.pend-punto.ambar { background: var(--warn); }
+.pend-chip.active .pend-punto { box-shadow: 0 0 0 2px rgba(255,255,255,0.55); }
 
-.pend-list { display: flex; flex-direction: column; gap: 8px; }
+/* ---------- Panel y grupos ---------- */
+.pend-panel { margin-bottom: 24px; }
 
+.pend-body { padding: 0; }
+
+.pend-list { display: flex; flex-direction: column; gap: 22px; }
+
+.pend-grupo { display: flex; flex-direction: column; gap: 8px; }
+
+.pend-grupo-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--ink-soft);
+  padding-bottom: 4px;
+}
+.pend-grupo-count {
+  font-size: 10px;
+  letter-spacing: 0;
+  font-weight: 700;
+  color: var(--muted);
+  background: var(--line-soft);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+/* ---------- Fila de alumno ---------- */
 .pend-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 12px 16px;
+  gap: 20px;
+  padding: 14px 18px;
   border: 1px solid var(--line);
   border-left: 3px solid var(--navy-soft);
+  border-radius: 8px;
   background: var(--paper);
-  transition: border-color 0.15s, background 0.15s;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
-.pend-item:hover { background: var(--navy-tint); border-color: var(--navy-soft); }
+.pend-item:hover {
+  border-color: var(--navy-soft);
+  box-shadow: 0 2px 8px -4px rgba(26,36,64,0.18);
+}
 .pend-item.vencido { border-left-color: var(--danger); }
 
 .pend-item-main { min-width: 0; flex: 1; }
@@ -1256,42 +1270,94 @@ textarea.input {
 .pend-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 12px;
-  font-size: 11px;
+  gap: 0 6px;
+  font-size: 12px;
   color: var(--muted);
   margin-top: 3px;
 }
-/* Rojo = vencido. Lo que aún no vence se enfatiza con peso, no con color. */
-.pend-meta .danger  { color: var(--danger); font-weight: 600; }
-.pend-meta .proximo { color: var(--navy);   font-weight: 600; }
+.pend-meta .sep { opacity: 0.6; }
+
+.pend-estado {
+  font-size: 12px;
+  font-weight: 600;
+  margin-top: 5px;
+}
+.pend-estado {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 8px;
+}
+/* La fecha concreta acompaña al estado, en gris: es el dato de apoyo. */
+.pend-fecha {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.pend-estado.danger  { color: var(--danger); }
+.pend-estado.warn    { color: var(--warn); }
+.pend-estado.proximo { color: var(--navy); }
 
 .pend-item-right {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-end;
   gap: 10px;
   flex-shrink: 0;
 }
 .pend-cuota {
-  font-size: 14px;
+  font-size: 18px;
   font-weight: 700;
+  letter-spacing: -0.01em;
   color: var(--navy);
   white-space: nowrap;
 }
 .pend-cuota.deuda { color: var(--danger); }
 
-.pend-nota {
-  margin-top: 4px;
-  padding: 10px 16px;
-  font-size: 11px;
-  color: var(--muted);
-  text-align: center;
-  background: var(--bg);
-  border: 1px dashed var(--line);
+.pend-item-acciones { display: flex; align-items: center; gap: 4px; }
+
+/* Botón en caja baja: el uppercase del .btn no aplica dentro de la lista. */
+.btn-plain {
+  text-transform: none;
+  letter-spacing: 0.01em;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
 }
 
+/* ---------- Menú de acciones ---------- */
+.pend-menu { position: relative; }
+.pend-menu-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  min-width: 172px;
+  display: flex;
+  flex-direction: column;
+  padding: 5px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px -8px rgba(26,36,64,0.28);
+}
+.pend-menu-pop button {
+  text-align: left;
+  padding: 9px 12px;
+  font-size: 13px;
+  color: var(--ink-soft);
+  border-radius: 5px;
+  white-space: nowrap;
+}
+.pend-menu-pop button:hover { background: var(--navy-tint); color: var(--navy); }
+
+/* ---------- Vacíos ---------- */
 .pend-empty {
-  padding: 28px 20px;
+  padding: 32px 20px;
   text-align: center;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 8px;
 }
 .pend-empty .pend-empty-title {
   font-size: 15px;
@@ -1300,26 +1366,106 @@ textarea.input {
   margin-bottom: 4px;
 }
 .pend-empty .pend-empty-sub {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 
+/* ---------- Responsive ---------- */
 @media (max-width: 768px) {
-  .pend-head { padding: 14px; gap: 10px; }
-  .pend-title { font-size: 15px; }
-  .pend-controls { justify-content: flex-end; }
-  .pend-body { padding: 0 14px 14px; }
-  .pend-summary {
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-    padding: 12px 14px;
-  }
-  .pend-summary-value { font-size: 15px; }
+
+  /* Cada alumno pasa a ser una tarjeta vertical. */
   .pend-item {
     flex-direction: column;
     align-items: stretch;
-    gap: 10px;
+    gap: 12px;
   }
-  .pend-item-right { justify-content: space-between; }
-  .pend-item-right .btn { flex: 1; justify-content: center; }
+  .pend-item-right {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding-top: 12px;
+    border-top: 1px solid var(--line-soft);
+  }
+  .pend-item-acciones { flex: 1; justify-content: flex-end; }
+  .pend-item-acciones .btn { flex: 1; justify-content: center; max-width: 200px; }
+}
+@media (max-width: 480px) {
+  .pend-filtros { gap: 5px; }
+  .pend-chip { padding: 6px 11px; font-size: 10px; }
+}
+
+/* ============================================================
+   NAVEGACIÓN POR VISTAS (tabs del dashboard)
+   ============================================================ */
+.app-nav {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 24px;
+  display: flex;
+  gap: 4px;
+  border-top: 1px solid rgba(255,255,255,0.12);
+}
+.nav-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 13px 18px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #b8c7ed;
+  border-bottom: 3px solid transparent;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.nav-tab:hover { color: var(--paper); background: rgba(255,255,255,0.06); }
+.nav-tab.active {
+  color: var(--paper);
+  border-bottom-color: var(--paper);
+}
+.nav-tab svg { flex-shrink: 0; opacity: 0.9; }
+.nav-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: rgba(255,255,255,0.18);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+.nav-count:empty { display: none; }
+
+/* ============================================================
+   RESPONSIVE · dashboard por vistas
+   ============================================================ */
+@media (max-width: 768px) {
+  .app-nav {
+    padding: 0 8px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .app-nav::-webkit-scrollbar { display: none; }
+  .nav-tab { padding: 12px 14px; letter-spacing: 0.1em; white-space: nowrap; }
+}
+
+/* ============================================================
+   VISTA PENDIENTES · cabecera con badge y acción
+   ============================================================ */
+/* El badge acompaña al título, no debe escalar con sus 38px. */
+.section-head-simple h2 .pend-badge {
+  position: relative;
+  top: 2px;
+}
+
+@media (max-width: 768px) {
+  .section-head-simple {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+  }
 }

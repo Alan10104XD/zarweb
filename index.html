@@ -73,38 +73,55 @@
         Salir
       </button>
     </div>
+
+    <nav class="app-nav" id="app-nav">
+      <button type="button" class="nav-tab active" data-view="pendientes">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        Pendientes
+        <span class="nav-count" id="nav-count-pendientes"></span>
+      </button>
+      <button type="button" class="nav-tab" data-view="alumnos">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/></svg>
+        Alumnos
+        <span class="nav-count" id="nav-count-alumnos"></span>
+      </button>
+    </nav>
   </header>
 
   <main class="app-main">
-    <div class="section-head section-head-simple">
-      <div>
-        <p class="eyebrow" id="header-date">Resumen general</p>
-        <h2>Alumnos</h2>
-      </div>
-    </div>
 
     <!-- ============================================================
-         PANEL: FALTAN POR PAGAR
+         VISTA: PENDIENTES
          ============================================================ -->
-    <section class="pend-panel" id="pend-panel">
-      <div class="pend-head">
-        <button type="button" class="pend-toggle" id="pend-toggle" aria-expanded="true">
-          <svg class="pend-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-          <span class="pend-title">Faltan por pagar</span>
-          <span class="pend-badge" id="pend-badge">—</span>
-        </button>
-        <div class="pend-controls">
-          <button type="button" id="pend-refresh" class="icon-btn" title="Actualizar" aria-label="Actualizar">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-          </button>
+    <section class="view" id="view-pendientes">
+      <div class="section-head section-head-simple">
+        <div>
+          <p class="eyebrow" id="header-date">Resumen general</p>
+          <h2>Pagos pendientes <span class="pend-badge" id="pend-badge">—</span></h2>
+          <p class="section-sub">Alumnos con cuotas pendientes de pago</p>
         </div>
       </div>
 
-      <div class="pend-body" id="pend-body">
-        <div class="pend-summary" id="pend-summary"></div>
-        <div class="pend-list" id="pend-list"></div>
-      </div>
+      <!-- Filtros rápidos -->
+      <div class="pend-filtros" id="pend-filtros"></div>
+
+      <section class="pend-panel" id="pend-panel">
+        <div class="pend-body" id="pend-body">
+          <div class="pend-list" id="pend-list"></div>
+        </div>
+      </section>
     </section>
+
+    <!-- ============================================================
+         VISTA: ALUMNOS
+         ============================================================ -->
+    <section class="view hidden" id="view-alumnos">
+    <div class="section-head section-head-simple">
+      <div>
+        <p class="eyebrow">Registro completo</p>
+        <h2>Alumnos</h2>
+      </div>
+    </div>
 
     <!-- Action bar -->
     <div class="action-bar">
@@ -138,6 +155,7 @@
     <p class="results-footer" id="results-footer">
       MOSTRANDO 0 DE 0 ALUMNOS · DATOS SINCRONIZADOS CON EL SERVIDOR
     </p>
+    </section>
   </main>
 </div>
 
