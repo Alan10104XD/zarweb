@@ -554,7 +554,7 @@ function listarMeses(meses) {
 
 function estadoVencimiento(a, mesCuota) {
   const dias = diasHasta(rangoVencimiento(a, mesCuota).limite);
-  if (dias < 0)   return { texto: 'Venció', clase: 'danger' };
+  if (dias < 0)   return { texto: `Venció hace ${-dias} día${dias === -1 ? '' : 's'}`, clase: 'danger' };
   if (dias === 0) return { texto: 'Último día para pagar', clase: 'warn' };
   return { texto: `Vence en ${dias} día${dias === 1 ? '' : 's'}`, clase: dias <= 7 ? 'warn' : 'proximo' };
 }
