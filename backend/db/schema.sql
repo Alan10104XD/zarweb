@@ -91,13 +91,15 @@ FROM alumnos a;
 
 -- ============================================================
 --  USUARIO ADMINISTRADOR INICIAL
---  Contraseña: admin123  (hash bcrypt — cambiar en producción)
---  Generado con: passlib.hash.bcrypt.hash("admin123")
+--  Repo público: no se versiona ningún hash. Generar el propio con
+--    python -c "from passlib.context import CryptContext; \
+--               print(CryptContext(schemes=['bcrypt']).hash('TU_CONTRASEÑA'))"
+--  y descomentar el INSERT.
 -- ============================================================
-INSERT INTO administradores (usuario, password_hash, nombre)
-VALUES (
-    'admin',
-    '$2b$12$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW',
-    'Administrador'
-)
-ON CONFLICT (usuario) DO NOTHING;
+-- INSERT INTO administradores (usuario, password_hash, nombre)
+-- VALUES (
+--     'admin',
+--     '<HASH_BCRYPT_AQUI>',
+--     'Administrador'
+-- )
+-- ON CONFLICT (usuario) DO NOTHING;

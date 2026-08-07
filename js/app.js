@@ -1,18 +1,12 @@
-/* ============================================================
-   CONFIGURACIÓN
-   ============================================================ */
 const API_URL = "https://api.zarpemos.online";
 
 const KEY_TOKEN = 'app_token';
 const KEY_USER  = 'app_user';
 
-// Ventana del panel "Faltan por pagar": se listan los ya vencidos y los que
-// vencen dentro de estos días. El resto queda fuera hasta acercarse la fecha.
+// Ventana del panel de pendientes: se listan los vencidos y los que vencen
+// dentro de estos días.
 const DIAS_AVISO = 10;
 
-/* ============================================================
-   ESTADO
-   ============================================================ */
 let alumnos = [];
 let filtroEstado = 'todos';
 let busqueda = '';
@@ -25,21 +19,17 @@ let alumnoActualData = null;
 let pagosActuales    = [];
 let pagoAlumnoId     = null;
 
-let pendientes        = [];  // deudores dentro de la ventana DIAS_AVISO
-let deudoresTodos     = [];  // todos los deudores, sin límite de ventana
-let pendientesLejanos = 0;   // deben, pero su vencimiento cae fuera de la ventana
+let pendientes        = [];
+let deudoresTodos     = [];
+let pendientesLejanos = 0;
 let cargandoPendientes = false;
-let filtroPend    = 'todos'; // todos | vencidos | proximos | semana
+let filtroPend    = 'todos';
 
-// Padrón completo, sin los filtros de la tabla.
 let padron = [];
 let vistaActual = 'pendientes';
 
 let pendingConfirm = null;
 
-/* ============================================================
-   CLIENTE HTTP
-   ============================================================ */
 const api = {
   get token() { return localStorage.getItem(KEY_TOKEN); },
   setToken(t) { t ? localStorage.setItem(KEY_TOKEN, t) : localStorage.removeItem(KEY_TOKEN); },
@@ -86,7 +76,6 @@ const api = {
     });
   },
 
-  // alumnos
   listarAlumnos() {
     const params = new URLSearchParams();
     if (busqueda.trim()) params.set('search', busqueda.trim());
@@ -94,24 +83,19 @@ const api = {
     const qs = params.toString();
     return this.request(`/api/alumnos${qs ? '?' + qs : ''}`);
   },
-  // Sin filtros: el panel de pendientes necesita el padrón completo aunque
-  // la tabla esté filtrada o con una búsqueda activa.
+
   listarTodos()             { return this.request('/api/alumnos'); },
   obtenerAlumno(id)         { return this.request(`/api/alumnos/${id}`); },
   crearAlumno(data)         { return this.request('/api/alumnos',       { method: 'POST', body: JSON.stringify(data) }); },
   actualizarAlumno(id, d)   { return this.request(`/api/alumnos/${id}`, { method: 'PUT',  body: JSON.stringify(d) }); },
   eliminarAlumno(id)        { return this.request(`/api/alumnos/${id}`, { method: 'DELETE' }); },
 
-  // pagos
   listarPagos(alumnoId)     { return this.request(`/api/alumnos/${alumnoId}/pagos`); },
   crearPago(alumnoId, d)    { return this.request(`/api/alumnos/${alumnoId}/pagos`, { method: 'POST', body: JSON.stringify(d) }); },
   actualizarPago(id, d)     { return this.request(`/api/pagos/${id}`, { method: 'PUT', body: JSON.stringify(d) }); },
   eliminarPago(id)          { return this.request(`/api/pagos/${id}`, { method: 'DELETE' }); },
 };
 
-/* ============================================================
-   UTILIDADES
-   ============================================================ */
 function parseFecha(str) {
   if (!str) return null;
   const [y, m, d] = str.split('-').map(Number);
@@ -178,9 +162,6 @@ const LABEL_METODO = {
   otro: 'Otro',
 };
 
-/* ============================================================
-   TOASTS
-   ============================================================ */
 function showToast(message, type = 'success') {
   const container = document.getElementById('toast-container');
   const toast = document.createElement('div');
@@ -197,9 +178,6 @@ function showToast(message, type = 'success') {
   setTimeout(() => toast.remove(), 3500);
 }
 
-/* ============================================================
-   LOGIN
-   ============================================================ */
 const loginForm = document.getElementById('login-form');
 const togglePass = document.getElementById('toggle-pass');
 const loginPass = document.getElementById('login-pass');
@@ -239,9 +217,6 @@ function mostrarLogin() {
   setTimeout(() => document.getElementById('login-user').focus(), 50);
 }
 
-/* ============================================================
-   DASHBOARD
-   ============================================================ */
 async function mostrarDashboard() {
   document.getElementById('login-screen').classList.add('hidden');
   document.getElementById('dashboard').classList.remove('hidden');
@@ -252,9 +227,6 @@ async function mostrarDashboard() {
   await Promise.all([recargarAlumnos(), cargarPendientes()]);
 }
 
-/* ============================================================
-   NAVEGACIÓN POR VISTAS
-   ============================================================ */
 const VISTAS = ['pendientes', 'alumnos'];
 
 function vistaDesdeHash() {
@@ -303,9 +275,6 @@ function renderEstadoCarga() {
     </div>`;
 }
 
-/* ============================================================
-   RENDER
-   ============================================================ */
 function render() {
   document.querySelectorAll('[data-filter-estado]').forEach(c =>
     c.classList.toggle('active', c.dataset.filterEstado === filtroEstado));
@@ -355,6 +324,7 @@ function renderFila(a) {
   const ultimoPago = a.ultimo_pago_fecha
     ? `${formatearFecha(a.ultimo_pago_fecha)}<span class="td-sub">${formatearMonto(a.ultimo_pago_monto)}</span>`
     : '<span class="text-muted">—</span>';
+  const obs = (a.observaciones || '').trim();
 
   return `
     <tr>
@@ -362,6 +332,9 @@ function renderFila(a) {
       <td>
         <p class="td-name">${escapeHtml(a.nombre)}</p>
         ${a.cedula ? `<p class="td-sub">${escapeHtml(a.cedula)}</p>` : ''}
+        ${obs ? `<p class="td-obs" title="${escapeHtml(obs)}">
+          <span>${escapeHtml(obs)}</span>
+        </p>` : ''}
       </td>
       <td>
         <p class="td-contacto">${escapeHtml(contacto)}</p>
@@ -387,35 +360,23 @@ function renderFila(a) {
     </tr>`;
 }
 
-/* ============================================================
-   PANEL · FALTAN POR PAGAR
-   Los pagos se imputan al mes adeudado más antiguo (FIFO): un pago
-   atrasado cubre el mes que había quedado impago. El mes consultado
-   es la n-ésima cuota del alumno desde su alta, así que está cubierto
-   cuando acumula al menos n pagos.
-   ============================================================ */
 const pendPanel = document.getElementById('pend-panel');
 
-/** Meses transcurridos entre dos meses 'YYYY-MM'. */
 function mesesEntre(mesA, mesB) {
   const [ya, ma] = mesA.split('-').map(Number);
   const [yb, mb] = mesB.split('-').map(Number);
   return (yb - ya) * 12 + (mb - ma);
 }
-/** Corre `n` meses hacia adelante desde un 'YYYY-MM'. */
+
 function correrMeses(mes, n) {
   const [y, m] = mes.split('-').map(Number);
   const d = new Date(y, m - 1 + n, 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
-/**
- * Deuda del alumno hasta el mes consultado.
- * Las cuotas van desde el mes de alta y los pagos cubren las más antiguas,
- * así que las impagas son las que quedan después de los `pagos_count` primeros.
- * `vencidos` son las que ya pasaron su tramo de vencimiento; la cuota del mes
- * en curso no cuenta como atrasada hasta que se cierra su tramo.
- */
+// Los pagos se imputan al mes adeudado más antiguo (FIFO): las cuotas van desde
+// el mes de alta, así que las impagas son las que quedan tras los `pagos_count`
+// primeros. La cuota del mes en curso no cuenta como vencida hasta cerrar su tramo.
 function deuda(a, mes) {
   const mesAlta = a.fecha_alta ? a.fecha_alta.slice(0, 7) : mes;
   const total = mesesEntre(mesAlta, mes) + 1;
@@ -428,10 +389,9 @@ function deuda(a, mes) {
   return {
     adeudados,
     vencidos,
-    // El primero impago marca el vencimiento que se muestra; si está todo al día
-    // hasta hoy, se muestra el tramo del mes consultado.
+
     mesVencimiento: adeudados[0] || mes,
-    // Sólo se cobra lo ya vencido; si aún no venció nada, la cuota del mes.
+
     monto: (vencidos.length || 1) * cuota,
   };
 }
@@ -443,15 +403,14 @@ async function cargarPendientes() {
   renderPendientes();
 
   try {
-    // Un solo request: alimenta el panel y el contador de la pestaña Alumnos.
+
     padron = await api.listarTodos();
     const finMes = ultimoDiaDelMes(mes);
     const activos = padron.filter(a => a.estado === 'activo');
-    // Los dados de alta después del mes consultado no deben nada de ese mes.
+
     const elegibles = activos.filter(a => !a.fecha_alta || a.fecha_alta <= finMes);
     const conDeuda = elegibles.filter(a => deuda(a, mes).adeudados.length > 0);
 
-    // Los vencidos hace más tiempo van primero; a igual fecha, alfabético.
     const porVencimiento = (x, y) => {
       const vx = rangoVencimiento(x, deuda(x, mes).mesVencimiento).limite;
       const vy = rangoVencimiento(y, deuda(y, mes).mesVencimiento).limite;
@@ -460,7 +419,7 @@ async function cargarPendientes() {
     };
 
     deudoresTodos = [...conDeuda].sort(porVencimiento);
-    // Se listan los vencidos (días negativos) y los que vencen dentro de la ventana.
+
     pendientes = deudoresTodos.filter(a =>
       diasHasta(rangoVencimiento(a, deuda(a, mes).mesVencimiento).limite) <= DIAS_AVISO);
 
@@ -484,12 +443,9 @@ function renderContadoresNav() {
     cargandoPendientes ? '' : (pendientes.length || '');
 }
 
-/** Días que faltan para el cierre del tramo de la cuota más antigua impaga. */
 function diasParaVencer(a, mes) {
   return diasHasta(rangoVencimiento(a, deuda(a, mes || mesActualISO()).mesVencimiento).limite);
 }
-
-
 
 function renderPendientes() {
   const badge   = document.getElementById('pend-badge');
@@ -515,7 +471,6 @@ function renderPendientes() {
   badge.className = `pend-badge ${vencidos.length ? 'deuda' : (base.length ? '' : 'ok')}`;
   badge.textContent = base.length;
 
-  /* --- Filtros rápidos (alternables: volver a pulsarlos muestra todo) --- */
   const chips = [
     { k: 'vencidos', txt: 'Vencidos',          n: vencidos.length, punto: 'rojo' },
     { k: 'semana',   txt: 'Vence esta semana', n: semana.length,   punto: 'ambar' },
@@ -527,7 +482,6 @@ function renderPendientes() {
       ${c.txt} <span class="count">(${c.n})</span>
     </button>`).join('');
 
-  /* --- Lista agrupada --- */
   const grupos = {
     vencidos: [['vencidos', vencidos]],
     semana:   [['semana', semana]],
@@ -574,13 +528,8 @@ function renderPendientes() {
   cablearAccionesPendientes(list);
 }
 
-
-/**
- * El vencimiento se agrupa por tramo del mes según el día de alta:
- * alta del 1 al 10 → vence entre el 1 y el 10; del 11 al 20 → entre el 10 y el 20;
- * del 21 en adelante → entre el 20 y el fin de mes. La fecha límite es el cierre
- * del tramo. Sin fecha de alta se toma el último tramo.
- */
+// El vencimiento se agrupa por tramo del mes según el día de alta: 1-10 vence el 10,
+// 11-20 vence el 20, 21+ vence a fin de mes. Sin fecha de alta se toma el último tramo.
 function rangoVencimiento(a, mesCuota) {
   const mes = mesCuota || mesActualISO();
   const [y, m] = mes.split('-').map(Number);
@@ -597,18 +546,15 @@ function rangoVencimiento(a, mesCuota) {
   return { limite, etiqueta: `${dd(desde)} al ${formatearFecha(limite)}` };
 }
 
-
-/** "julio" / "julio y agosto" / "mayo, junio y julio" */
 function listarMeses(meses) {
   const nombres = meses.map(m => nombreMes(m).replace(/ de \d{4}$/, '').toLowerCase());
   if (nombres.length <= 1) return nombres[0] || '';
   return `${nombres.slice(0, -1).join(', ')} y ${nombres[nombres.length - 1]}`;
 }
 
-/** Estado corto del vencimiento: "Vencido hace 6 días" / "Vence en 4 días". */
 function estadoVencimiento(a, mesCuota) {
   const dias = diasHasta(rangoVencimiento(a, mesCuota).limite);
-  if (dias < 0)   return { texto: `Vencido hace ${-dias} día${dias === -1 ? '' : 's'}`, clase: 'danger' };
+  if (dias < 0)   return { texto: 'Venció', clase: 'danger' };
   if (dias === 0) return { texto: 'Último día para pagar', clase: 'warn' };
   return { texto: `Vence en ${dias} día${dias === 1 ? '' : 's'}`, clase: dias <= 7 ? 'warn' : 'proximo' };
 }
@@ -655,9 +601,6 @@ function renderItemPendiente(a) {
     </div>`;
 }
 
-/* ------------------------------------------------------------
-   Acciones de la lista (delegación: la lista se re-renderiza entera)
-   ------------------------------------------------------------ */
 function cerrarMenusPendientes() {
   document.querySelectorAll('.pend-menu-pop').forEach(p => p.classList.add('hidden'));
   document.querySelectorAll('.pend-menu-btn').forEach(b => b.setAttribute('aria-expanded', 'false'));
@@ -689,22 +632,17 @@ function cablearAccionesPendientes(list) {
   });
 }
 
-// El menú se cierra al hacer clic fuera o con Escape.
 document.addEventListener('click', cerrarMenusPendientes);
 
 document.getElementById('pend-filtros').addEventListener('click', (e) => {
   const chip = e.target.closest('[data-filtro-pend]');
   if (!chip || chip.disabled) return;
-  // Volver a pulsar el filtro activo lo quita y se listan todos otra vez.
+
   const k = chip.dataset.filtroPend;
   filtroPend = filtroPend === k ? 'todos' : k;
   renderPendientes();
 });
 
-
-/* ============================================================
-   FILTROS Y BÚSQUEDA
-   ============================================================ */
 let busquedaTimer = null;
 document.getElementById('filter-row-estado').addEventListener('click', (e) => {
   const chip = e.target.closest('[data-filter-estado]');
@@ -718,9 +656,6 @@ document.getElementById('search-input').addEventListener('input', (e) => {
   busquedaTimer = setTimeout(recargarAlumnos, 250);
 });
 
-/* ============================================================
-   MODAL ALUMNO (crear/editar)
-   ============================================================ */
 const alumnoModal = document.getElementById('alumno-modal');
 const alumnoForm  = document.getElementById('alumno-form');
 
@@ -733,6 +668,7 @@ function abrirModalCrearAlumno() {
   document.getElementById('alumno-id').value = '';
   document.getElementById('alumno-estado').value = 'activo';
   document.getElementById('alumno-fecha-alta').value = hoyISO();
+  actualizarContadorObservaciones();
   toggleCamposBaja('activo');
   limpiarErroresAlumno();
   alumnoModal.classList.remove('hidden');
@@ -761,11 +697,19 @@ async function abrirModalEditarAlumno(id) {
   document.getElementById('alumno-fecha-alta').value = a.fecha_alta || '';
   document.getElementById('alumno-fecha-baja').value = a.fecha_baja || '';
   document.getElementById('alumno-motivo-baja').value = a.motivo_baja || '';
+  document.getElementById('alumno-observaciones').value = a.observaciones || '';
+  actualizarContadorObservaciones();
   toggleCamposBaja(a.estado);
   limpiarErroresAlumno();
   alumnoModal.classList.remove('hidden');
   setTimeout(() => document.getElementById('alumno-nombre').focus(), 50);
 }
+
+const obsInput = document.getElementById('alumno-observaciones');
+function actualizarContadorObservaciones() {
+  document.getElementById('observaciones-count').textContent = obsInput.value.length;
+}
+obsInput.addEventListener('input', actualizarContadorObservaciones);
 
 function toggleCamposBaja(estado) {
   const visible = estado === 'inactivo';
@@ -824,6 +768,7 @@ alumnoForm.addEventListener('submit', async (e) => {
     fecha_alta: document.getElementById('alumno-fecha-alta').value || null,
     fecha_baja: document.getElementById('alumno-fecha-baja').value || null,
     motivo_baja: document.getElementById('alumno-motivo-baja').value.trim() || null,
+    observaciones: obsInput.value.trim() || null,
   };
 
   const btn = document.getElementById('modal-save');
@@ -846,9 +791,6 @@ alumnoForm.addEventListener('submit', async (e) => {
   }
 });
 
-/* ============================================================
-   MODAL PAGOS (historial)
-   ============================================================ */
 const pagosModal = document.getElementById('pagos-modal');
 
 async function abrirModalPagos(alumnoId) {
@@ -954,9 +896,6 @@ async function refrescarPagosActuales() {
   } catch (err) { showToast(err.message, 'error'); }
 }
 
-/* ============================================================
-   MODAL PAGO FORM (crear/editar)
-   ============================================================ */
 const pagoFormModal = document.getElementById('pago-form-modal');
 const pagoForm = document.getElementById('pago-form');
 
@@ -1063,9 +1002,6 @@ pagoForm.addEventListener('submit', async (e) => {
   }
 });
 
-/* ============================================================
-   ELIMINACIONES
-   ============================================================ */
 function pedirEliminarAlumno(id) {
   const a = alumnos.find(x => x.id === id);
   abrirConfirm({
@@ -1097,9 +1033,6 @@ function pedirEliminarPago(pagoId) {
   });
 }
 
-/* ============================================================
-   MODAL CONFIRMAR (genérico)
-   ============================================================ */
 const confirmModal = document.getElementById('confirm-modal');
 
 function abrirConfirm({ title, message, label, danger, action }) {
@@ -1132,9 +1065,6 @@ document.getElementById('confirm-ok').addEventListener('click', async () => {
   }
 });
 
-/* ============================================================
-   EXPORTAR A EXCEL
-   ============================================================ */
 const NAVY = 'FF27448C';
 const NAVY_DEEP = 'FF1D3470';
 const NAVY_TINT = 'FFEEF1F9';
@@ -1162,22 +1092,19 @@ document.getElementById('btn-export').addEventListener('click', async () => {
       views: [{ state: 'frozen', ySplit: 5 }],
     });
 
-    // Título
-    ws.mergeCells('A1:L1');
+    ws.mergeCells('A1:M1');
     const t = ws.getCell('A1');
     t.value = 'Zarpemos · Gestión de Alumnos';
     t.font = { name: 'Inter', size: 22, bold: true, color: { argb: NAVY } };
     t.alignment = { horizontal: 'left', vertical: 'middle' };
     ws.getRow(1).height = 34;
 
-    // Subtítulo
-    ws.mergeCells('A2:L2');
+    ws.mergeCells('A2:M2');
     const s = ws.getCell('A2');
     s.value = `Reporte generado el ${new Date().toLocaleDateString('es-PY', { day: '2-digit', month: 'long', year: 'numeric' })}`;
     s.font = { name: 'Inter', size: 10, italic: true, color: { argb: COLOR_MUTED } };
     s.alignment = { horizontal: 'left', vertical: 'middle' };
 
-    // Headers (fila 5)
     const columns = [
       { key: 'id',                header: 'ID',            width: 6,  align: 'center' },
       { key: 'nombre',            header: 'Nombre',        width: 32 },
@@ -1191,6 +1118,7 @@ document.getElementById('btn-export').addEventListener('click', async () => {
       { key: 'ultimo_pago_fecha', header: 'Último pago',   width: 14, align: 'center' },
       { key: 'pagos_count',       header: 'Nº de pagos',   width: 11, align: 'center' },
       { key: 'total_pagado',      header: 'Total pagado',  width: 16, format: 'currency', align: 'right' },
+      { key: 'observaciones',     header: 'Observaciones', width: 44 },
     ];
 
     columns.forEach((c, i) => { ws.getColumn(i + 1).width = c.width; });
@@ -1206,7 +1134,6 @@ document.getElementById('btn-export').addEventListener('click', async () => {
     });
     headerRow.height = 22;
 
-    // Datos
     alumnos.forEach((a, idx) => {
       const row = ws.getRow(6 + idx);
       const values = {
@@ -1222,6 +1149,7 @@ document.getElementById('btn-export').addEventListener('click', async () => {
         ultimo_pago_fecha: a.ultimo_pago_fecha ? parseFecha(a.ultimo_pago_fecha) : '',
         pagos_count: a.pagos_count,
         total_pagado: Number(a.total_pagado),
+        observaciones: a.observaciones || '',
       };
 
       const altFill = idx % 2 === 1
@@ -1239,7 +1167,6 @@ document.getElementById('btn-export').addEventListener('click', async () => {
         cell.border = { bottom: { style: 'hair', color: { argb: 'FFE1E5EF' } } };
       });
 
-      // Pintar la celda de estado
       const estadoCell = row.getCell(9);
       const isActivo = a.estado === 'activo';
       estadoCell.fill = {
@@ -1273,9 +1200,6 @@ document.getElementById('btn-export').addEventListener('click', async () => {
   }
 });
 
-/* ============================================================
-   ATAJOS DE TECLADO
-   ============================================================ */
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   cerrarMenusPendientes();
@@ -1285,15 +1209,9 @@ document.addEventListener('keydown', (e) => {
   else if (!pagosModal.classList.contains('hidden')) cerrarModalPagos();
 });
 
-/* ============================================================
-   FORMATTERS DE INPUTS NUMÉRICOS
-   ============================================================ */
 attachNumberFormatter(document.getElementById('alumno-monto-mensual'));
 attachNumberFormatter(document.getElementById('pago-monto'));
 
-/* ============================================================
-   INIT
-   ============================================================ */
 (async function init() {
   if (api.token) {
     try { await mostrarDashboard(); }

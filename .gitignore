@@ -1,0 +1,20 @@
+# El .env tiene la contraseña de la BD y el SECRET_KEY: el repo es público.
+.env
+.env.*
+!.env.example
+
+# Dumps: contienen datos personales de los alumnos.
+*.sql.gz
+*.dump
+backups/
+
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

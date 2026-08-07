@@ -18,9 +18,6 @@
 
 <body>
 
-<!-- ============================================================
-     LOGIN
-     ============================================================ -->
 <div id="login-screen" class="login-screen">
   <div class="login-wrap">
     <div class="login-mark login-mark-simple">
@@ -54,9 +51,6 @@
   </div>
 </div>
 
-<!-- ============================================================
-     DASHBOARD
-     ============================================================ -->
 <div id="dashboard" class="hidden">
   <header class="app-header">
     <div class="app-header-inner">
@@ -90,9 +84,6 @@
 
   <main class="app-main">
 
-    <!-- ============================================================
-         VISTA: PENDIENTES
-         ============================================================ -->
     <section class="view" id="view-pendientes">
       <div class="section-head section-head-simple">
         <div>
@@ -102,7 +93,6 @@
         </div>
       </div>
 
-      <!-- Filtros rápidos -->
       <div class="pend-filtros" id="pend-filtros"></div>
 
       <section class="pend-panel" id="pend-panel">
@@ -112,9 +102,6 @@
       </section>
     </section>
 
-    <!-- ============================================================
-         VISTA: ALUMNOS
-         ============================================================ -->
     <section class="view hidden" id="view-alumnos">
     <div class="section-head section-head-simple">
       <div>
@@ -123,7 +110,6 @@
       </div>
     </div>
 
-    <!-- Action bar -->
     <div class="action-bar">
       <div class="action-bar-row">
         <div class="search-box">
@@ -149,7 +135,6 @@
       </div>
     </div>
 
-    <!-- Tabla -->
     <div class="table-wrap" id="table-wrap"></div>
 
     <p class="results-footer" id="results-footer">
@@ -159,9 +144,6 @@
   </main>
 </div>
 
-<!-- ============================================================
-     MODAL: ALUMNO (crear/editar)
-     ============================================================ -->
 <div id="alumno-modal" class="modal-overlay hidden">
   <div class="modal modal-wide">
     <div class="modal-head">
@@ -249,6 +231,14 @@
         <textarea id="alumno-motivo-baja" class="input" rows="2" maxlength="500"></textarea>
       </div>
 
+      <h4 class="form-section-title">Observaciones</h4>
+      <div class="field">
+        <label class="field-label">Notas sobre el alumno <span class="opt">(opcional)</span></label>
+        <textarea id="alumno-observaciones" class="input" rows="4" maxlength="1000"
+                  placeholder="Ej: alergias, horarios especiales, acuerdos de pago…"></textarea>
+        <p class="field-hint"><span id="observaciones-count">0</span>/1000</p>
+      </div>
+
       <div class="modal-foot">
         <button type="button" id="modal-cancel" class="btn btn-secondary">Cancelar</button>
         <button type="submit" id="modal-save" class="btn btn-primary">Crear alumno</button>
@@ -257,9 +247,6 @@
   </div>
 </div>
 
-<!-- ============================================================
-     MODAL: PAGOS DEL ALUMNO
-     ============================================================ -->
 <div id="pagos-modal" class="modal-overlay hidden">
   <div class="modal modal-wide">
     <div class="modal-head">
@@ -299,9 +286,6 @@
   </div>
 </div>
 
-<!-- ============================================================
-     MODAL: REGISTRAR / EDITAR PAGO
-     ============================================================ -->
 <div id="pago-form-modal" class="modal-overlay hidden">
   <div class="modal">
     <div class="modal-head">
@@ -359,9 +343,6 @@
   </div>
 </div>
 
-<!-- ============================================================
-     MODAL: CONFIRMAR
-     ============================================================ -->
 <div id="confirm-modal" class="modal-overlay hidden">
   <div class="modal confirm-modal">
     <div class="modal-body">
