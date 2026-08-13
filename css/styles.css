@@ -1297,6 +1297,26 @@ textarea.input {
   white-space: nowrap;
 }
 .pend-menu-pop button:hover { background: var(--navy-tint); color: var(--navy); }
+.pend-menu-pop button:disabled {
+  color: var(--muted);
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: none;
+}
+
+/* Recordatorio por WhatsApp: verde de marca solo al hover, para que no compita
+   con "Registrar pago", que es la acción principal del item. */
+.wa-btn:hover:not(:disabled) { color: #128c7e; background: #e7f6f2; }
+
+/* Ya se le abrió el chat hoy. Marca local: no confirma que se haya enviado,
+   solo evita repetir o saltear a alguien en una tanda. */
+.wa-btn.avisado { color: #128c7e; background: #e7f6f2; }
+.wa-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  background: none;
+  color: var(--muted);
+}
 
 .pend-empty {
   padding: 32px 20px;

@@ -559,6 +559,66 @@ function estadoVencimiento(a, mesCuota) {
   return { texto: `Vence en ${dias} día${dias === 1 ? '' : 's'}`, clase: dias <= 7 ? 'warn' : 'proximo' };
 }
 
+// El recordatorio va al teléfono del alumno; si no cargó ninguno, al del tutor.
+function telefonoRecordatorio(a) {
+  return (a.telefono || '').trim() || (a.tutor_telefono || '').trim() || null;
+}
+
+const COD_PAIS = '595';
+
+// wa.me exige el número en internacional, sin '+' ni separadores. En la base
+// vienen como los cargó el operador: "0981 123-456", "+595 981 123456", etc.
+function normalizarTelefono(telefono) {
+  const crudo = (telefono || '').trim();
+  let internacional = crudo.startsWith('+');
+  let digitos = crudo.replace(/\D/g, '');
+  if (!digitos) return null;
+
+  if (digitos.startsWith('00')) {          // 00595981... → 595981...
+    digitos = digitos.slice(2);
+    internacional = true;
+  }
+  if (!internacional) {
+    if (digitos.startsWith(COD_PAIS)) {
+      // ya venía con código de país, sin '+'
+    } else if (digitos.startsWith('0')) {  // 0981123456 → 595981123456
+      digitos = COD_PAIS + digitos.slice(1);
+    } else if (digitos.length <= 10) {     // 981123456 → 595981123456
+      digitos = COD_PAIS + digitos;
+    }
+  }
+  return digitos.length >= 10 && digitos.length <= 15 ? digitos : null;
+}
+
+function textoRecordatorio(a, monto, limite) {
+  const nombre = (a.nombre || '').trim().split(/\s+/)[0] || '';
+  // formatearMonto separa "Gs." del número con un espacio duro (U+00A0), que en
+  // la URL termina como %C2%A0; se pasa a espacio normal para que viaje limpio.
+  const importe = formatearMonto(monto).replace(/ /g, ' ');
+  const verbo = diasHasta(limite) < 0 ? 'venció' : 'vence';
+  return `Hola ${nombre}, te recordamos que tu cuota de ${importe} `
+       + `${verbo} el ${formatearFecha(limite)}. `
+       + 'Ante cualquier duda, escribinos por acá. ¡Gracias!';
+}
+
+// wa.me no informa si el mensaje se envió, así que se deja constancia local de
+// a quién se le abrió el chat. Es una ayuda para no repetir ni saltear a nadie
+// en una tanda, no un comprobante de envío.
+const KEY_AVISOS = 'app_avisos';
+
+function leerAvisos() {
+  try { return JSON.parse(localStorage.getItem(KEY_AVISOS)) || {}; }
+  catch (_) { return {}; }
+}
+function marcarAvisado(id) {
+  const avisos = leerAvisos();
+  avisos[id] = hoyISO();
+  try { localStorage.setItem(KEY_AVISOS, JSON.stringify(avisos)); } catch (_) {}
+}
+function avisadoHoy(id) {
+  return leerAvisos()[id] === hoyISO();
+}
+
 function renderItemPendiente(a) {
   const { vencidos, adeudados, mesVencimiento, monto } = deuda(a, mesActualISO());
   const est = estadoVencimiento(a, mesVencimiento);
@@ -567,6 +627,8 @@ function renderItemPendiente(a) {
     ? `Últ. pago ${formatearFecha(a.ultimo_pago_fecha)}`
     : 'Nunca registró un pago';
   const debe = listarMeses(vencidos.length ? vencidos : adeudados);
+  const tel = telefonoRecordatorio(a);
+  const avisado = avisadoHoy(a.id);
 
   return `
     <div class="pend-item ${vencidos.length ? 'vencido' : ''}">
@@ -584,6 +646,14 @@ function renderItemPendiente(a) {
       <div class="pend-item-right">
         <span class="pend-cuota ${vencidos.length ? 'deuda' : ''}">${formatearMonto(monto)}</span>
         <div class="pend-item-acciones">
+          <button class="icon-btn wa-btn ${avisado ? 'avisado' : ''}" data-pend-action="avisar" data-id="${a.id}" ${tel ? '' : 'disabled'}
+                  title="${tel
+                    ? (avisado ? `Ya se le abrió el chat hoy · Avisar de nuevo al ${escapeHtml(tel)}`
+                               : `Avisar por WhatsApp al ${escapeHtml(tel)}`)
+                    : 'Sin teléfono cargado'}"
+                  aria-label="Enviar recordatorio por WhatsApp">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38a9.9 9.9 0 0 0 4.79 1.22h.01c5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0 0 12.04 2zm0 18.15h-.01a8.2 8.2 0 0 1-4.19-1.15l-.3-.18-3.12.82.83-3.04-.2-.31a8.19 8.19 0 0 1-1.26-4.38c0-4.54 3.7-8.24 8.25-8.24 2.2 0 4.27.86 5.83 2.42a8.19 8.19 0 0 1 2.41 5.83c0 4.54-3.7 8.23-8.24 8.23z"/><path d="M17.47 14.38c-.3-.15-1.75-.86-2.02-.96-.27-.1-.47-.15-.67.15-.2.3-.77.96-.94 1.16-.17.2-.35.22-.64.07-.3-.15-1.25-.46-2.38-1.47-.88-.78-1.48-1.75-1.65-2.05-.17-.3-.02-.46.13-.6.13-.13.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.02-.52-.08-.15-.67-1.6-.92-2.2-.24-.58-.49-.5-.67-.51h-.57c-.2 0-.52.07-.79.37-.27.3-1.04 1.01-1.04 2.47s1.06 2.86 1.21 3.06c.15.2 2.1 3.2 5.08 4.49.71.3 1.26.49 1.69.63.71.22 1.36.19 1.87.12.57-.09 1.75-.72 2-1.41.25-.69.25-1.28.17-1.41-.07-.13-.27-.2-.57-.35z"/></svg>
+          </button>
           <button class="btn btn-primary btn-sm btn-plain" data-pend-action="pagar" data-id="${a.id}">Registrar pago</button>
           <div class="pend-menu">
             <button class="icon-btn pend-menu-btn" data-pend-action="menu" data-id="${a.id}"
@@ -593,6 +663,7 @@ function renderItemPendiente(a) {
             <div class="pend-menu-pop hidden">
               <button type="button" data-pend-action="historial" data-id="${a.id}">Ver historial</button>
               <button type="button" data-pend-action="pagar" data-id="${a.id}">Registrar pago</button>
+              <button type="button" data-pend-action="avisar" data-id="${a.id}" ${tel ? '' : 'disabled'}>${avisado ? 'Avisar de nuevo' : 'Avisar por WhatsApp'}</button>
               <button type="button" data-pend-action="editar" data-id="${a.id}">Editar alumno</button>
             </div>
           </div>
@@ -626,10 +697,44 @@ function cablearAccionesPendientes(list) {
 
       cerrarMenusPendientes();
       if (accion === 'pagar')     { const a = buscar(id); if (a) abrirModalCrearPago(a); }
+      if (accion === 'avisar')    { const a = buscar(id); if (a) pedirEnviarRecordatorio(a); }
       if (accion === 'historial') abrirModalPagos(id);
       if (accion === 'editar')    abrirModalEditarAlumno(id);
     });
   });
+}
+
+// Abre WhatsApp con el chat del alumno y el mensaje ya redactado. El envío lo
+// confirma la persona desde WhatsApp, así que sale del número con el que esté
+// iniciada esa sesión: para que figure el de la empresa, WhatsApp Web tiene que
+// estar vinculado al celular de la empresa.
+function pedirEnviarRecordatorio(a) {
+  const tel = telefonoRecordatorio(a);
+  if (!tel) { showToast(`${a.nombre} no tiene teléfono cargado`, 'error'); return; }
+
+  const numero = normalizarTelefono(tel);
+  if (!numero) {
+    showToast(`El teléfono de ${a.nombre} («${tel}») no es un número válido`, 'error');
+    return;
+  }
+
+  const { mesVencimiento, monto } = deuda(a, mesActualISO());
+  const { limite } = rangoVencimiento(a, mesVencimiento);
+  const texto = textoRecordatorio(a, monto, limite);
+
+  const ventana = window.open(
+    `https://wa.me/${numero}?text=${encodeURIComponent(texto)}`,
+    '_blank', 'noopener');
+
+  if (!ventana) {
+    showToast('El navegador bloqueó la ventana. Permití las ventanas emergentes.', 'error');
+    return;
+  }
+
+  marcarAvisado(a.id);
+  const destinatario = (a.telefono || '').trim() ? '' : ' (tutor)';
+  showToast(`WhatsApp abierto para ${a.nombre}${destinatario}. Falta tocar "Enviar".`);
+  renderPendientes();
 }
 
 document.addEventListener('click', cerrarMenusPendientes);
