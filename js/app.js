@@ -3,10 +3,6 @@ const API_URL = "https://api.zarpemos.online";
 const KEY_TOKEN = 'app_token';
 const KEY_USER  = 'app_user';
 
-// Ventana del panel de pendientes: se listan los vencidos y los que vencen
-// dentro de estos días.
-const DIAS_AVISO = 10;
-
 let alumnos = [];
 let filtroEstado = 'todos';
 let busqueda = '';
@@ -420,8 +416,10 @@ async function cargarPendientes() {
 
     deudoresTodos = [...conDeuda].sort(porVencimiento);
 
+    // Recién se avisa cuando arranca el tramo de la cuota (ej.: tramo 1-10 desde el 1).
+    const hoy = hoyISO();
     pendientes = deudoresTodos.filter(a =>
-      diasHasta(rangoVencimiento(a, deuda(a, mes).mesVencimiento).limite) <= DIAS_AVISO);
+      rangoVencimiento(a, deuda(a, mes).mesVencimiento).inicio <= hoy);
 
     pendientesLejanos = deudoresTodos.length - pendientes.length;
   } catch (err) {
@@ -443,10 +441,6 @@ function renderContadoresNav() {
     cargandoPendientes ? '' : (pendientes.length || '');
 }
 
-function diasParaVencer(a, mes) {
-  return diasHasta(rangoVencimiento(a, deuda(a, mes || mesActualISO()).mesVencimiento).limite);
-}
-
 function renderPendientes() {
   const badge   = document.getElementById('pend-badge');
   const filtros = document.getElementById('pend-filtros');
@@ -465,15 +459,14 @@ function renderPendientes() {
 
   const vencidos = base.filter(a => deuda(a, mes).vencidos.length > 0);
   const proximos = base.filter(a => deuda(a, mes).vencidos.length === 0);
-  const semana   = proximos.filter(a => diasParaVencer(a, mes) <= 7);
 
   pendPanel.classList.toggle('con-deuda', vencidos.length > 0);
   badge.className = `pend-badge ${vencidos.length ? 'deuda' : (base.length ? '' : 'ok')}`;
   badge.textContent = base.length;
 
   const chips = [
-    { k: 'vencidos', txt: 'Vencidos',          n: vencidos.length, punto: 'rojo' },
-    { k: 'semana',   txt: 'Vence esta semana', n: semana.length,   punto: 'ambar' },
+    { k: 'vencidos', txt: 'Vencidos',   n: vencidos.length, punto: 'rojo' },
+    { k: 'proximos', txt: 'Por vencer', n: proximos.length, punto: 'azul' },
   ];
   filtros.innerHTML = chips.map(c => `
     <button type="button" class="filter-chip pend-chip ${filtroPend === c.k ? 'active' : ''}"
@@ -484,13 +477,12 @@ function renderPendientes() {
 
   const grupos = {
     vencidos: [['vencidos', vencidos]],
-    semana:   [['semana', semana]],
+    proximos: [['proximos', proximos]],
   }[filtroPend] || [['vencidos', vencidos], ['proximos', proximos]];
 
   const TITULOS = {
     vencidos: { punto: 'rojo',  txt: 'Vencidos' },
-    proximos: { punto: 'azul',  txt: 'Próximos vencimientos' },
-    semana:   { punto: 'ambar', txt: 'Vence esta semana' },
+    proximos: { punto: 'azul',  txt: 'Por vencer' },
   };
 
   const visibles = grupos.reduce((n, [, arr]) => n + arr.length, 0);
@@ -501,7 +493,7 @@ function renderPendientes() {
         <p class="pend-empty-title">${base.length
           ? 'Sin resultados para este filtro'
           : (pendientesLejanos
-              ? `Nadie vence en los próximos ${DIAS_AVISO} días`
+              ? 'Nadie está en período de pago'
               : `Sin pendientes en ${nombreMes(mes)}`)}</p>
         <p class="pend-empty-sub">${base.length
           ? 'Probá con otro filtro'
@@ -538,12 +530,13 @@ function rangoVencimiento(a, mesCuota) {
 
   let desde, hasta;
   if (diaAlta <= 10)      { desde = 1;  hasta = 10; }
-  else if (diaAlta <= 20) { desde = 10; hasta = 20; }
-  else                    { desde = 20; hasta = finDeMes; }
+  else if (diaAlta <= 20) { desde = 11; hasta = 20; }
+  else                    { desde = 21; hasta = finDeMes; }
 
   const dd = (n) => String(n).padStart(2, '0');
+  const inicio = `${mes}-${dd(desde)}`;
   const limite = `${mes}-${dd(hasta)}`;
-  return { limite, etiqueta: `${dd(desde)} al ${formatearFecha(limite)}` };
+  return { inicio, limite, etiqueta: `${dd(desde)} al ${formatearFecha(limite)}` };
 }
 
 function listarMeses(meses) {
