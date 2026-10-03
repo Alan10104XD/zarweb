@@ -557,7 +557,7 @@ TICKET_CSS = """
 """
 
 
-def render_boleta_html(a: Alumno, p: Pago, url: str, embed: bool = False) -> str:
+def render_boleta_html(a: Alumno, p: Pago, embed: bool = False) -> str:
     """Plantilla única del ticket: la usan el link público y el modal del panel."""
     emitido = p.recibo_emitido_en or datetime.now(timezone.utc)
     importe = _fmt_num(p.monto)
@@ -633,10 +633,7 @@ def render_boleta_html(a: Alumno, p: Pago, url: str, embed: bool = False) -> str
 
   <p class="gracias">***GRACIAS POR ELEGIRNOS***</p>
 
-  <p class="pie">
-    Comprobante interno · No válido como documento tributario<br>
-    {url}
-  </p>
+  <p class="pie">Comprobante interno · No válido como documento tributario</p>
 
 </div>
 </body>
@@ -656,7 +653,6 @@ def render_boleta_html(a: Alumno, p: Pago, url: str, embed: bool = False) -> str
         metodo=metodo,
         letras=_e(monto_en_letras(p.monto)),
         nota='<p class="nota">Nota: {}</p>'.format(_e(p.nota)) if p.nota else "",
-        url=_e(url),
     )
 
 
@@ -937,7 +933,7 @@ def obtener_boleta(pago_id: int, request: Request, db: Session = Depends(get_db)
         pago_id=p.id,
         numero=numero_recibo(p),
         url=url,
-        html=render_boleta_html(a, p, url, embed=True),
+        html=render_boleta_html(a, p, embed=True),
         monto=p.monto,
         fecha_pago=p.fecha_pago,
         alumno=BoletaAlumnoOut.model_validate(a),
@@ -945,7 +941,7 @@ def obtener_boleta(pago_id: int, request: Request, db: Session = Depends(get_db)
 
 
 @app.get("/boleta/{token}", response_class=HTMLResponse, tags=["boletas"])
-def boleta_publica(token: str, request: Request, db: Session = Depends(get_db)):
+def boleta_publica(token: str, db: Session = Depends(get_db)):
     """Link que se le pasa al alumno. Sin sesión: el token es la credencial."""
     p = db.query(Pago).filter(Pago.recibo_token == token).first()
     if not p:
@@ -954,7 +950,7 @@ def boleta_publica(token: str, request: Request, db: Session = Depends(get_db)):
     if not a:
         raise HTTPException(status_code=404, detail="Boleta no encontrada")
 
-    html = render_boleta_html(a, p, url_boleta(request, token))
+    html = render_boleta_html(a, p)
     return HTMLResponse(
         content=html,
         headers={
