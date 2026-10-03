@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS alumnos (
     id                  SERIAL          PRIMARY KEY,
     nombre              VARCHAR(120)    NOT NULL,
     cedula              VARCHAR(30),
+    ruc                 VARCHAR(30),
     email               VARCHAR(120),
     telefono            VARCHAR(30),
     tutor_nombre        VARCHAR(120),

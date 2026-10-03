@@ -3,10 +3,6 @@ const API_URL = "https://api.zarpemos.online";
 const KEY_TOKEN = 'app_token';
 const KEY_USER  = 'app_user';
 
-// Ventana del panel de pendientes: se listan los vencidos y los que vencen
-// dentro de estos días.
-const DIAS_AVISO = 10;
-
 let alumnos = [];
 let filtroEstado = 'todos';
 let busqueda = '';
@@ -337,11 +333,13 @@ function renderFila(a) {
     : '<span class="text-muted">—</span>';
   const obs = (a.observaciones || '').trim();
 
+  const documentos = [a.cedula, a.ruc && `RUC ${a.ruc}`].filter(Boolean).join(' · ');
+
   return `
     <tr>
       <td>
         <p class="td-name">${escapeHtml(a.nombre)}</p>
-        ${a.cedula ? `<p class="td-sub">${escapeHtml(a.cedula)}</p>` : ''}
+        ${documentos ? `<p class="td-sub">${escapeHtml(documentos)}</p>` : ''}
         ${obs ? `<p class="td-obs" title="${escapeHtml(obs)}">
           <span>${escapeHtml(obs)}</span>
         </p>` : ''}
@@ -430,8 +428,10 @@ async function cargarPendientes() {
 
     deudoresTodos = [...conDeuda].sort(porVencimiento);
 
+    // Recién se avisa cuando arranca el tramo de la cuota (ej.: tramo 1-10 desde el 1).
+    const hoy = hoyISO();
     pendientes = deudoresTodos.filter(a =>
-      diasHasta(rangoVencimiento(a, deuda(a, mes).mesVencimiento).limite) <= DIAS_AVISO);
+      rangoVencimiento(a, deuda(a, mes).mesVencimiento).inicio <= hoy);
 
     pendientesLejanos = deudoresTodos.length - pendientes.length;
   } catch (err) {
@@ -453,10 +453,6 @@ function renderContadoresNav() {
     cargandoPendientes ? '' : (pendientes.length || '');
 }
 
-function diasParaVencer(a, mes) {
-  return diasHasta(rangoVencimiento(a, deuda(a, mes || mesActualISO()).mesVencimiento).limite);
-}
-
 function renderPendientes() {
   const badge   = document.getElementById('pend-badge');
   const filtros = document.getElementById('pend-filtros');
@@ -475,15 +471,14 @@ function renderPendientes() {
 
   const vencidos = base.filter(a => deuda(a, mes).vencidos.length > 0);
   const proximos = base.filter(a => deuda(a, mes).vencidos.length === 0);
-  const semana   = proximos.filter(a => diasParaVencer(a, mes) <= 7);
 
   pendPanel.classList.toggle('con-deuda', vencidos.length > 0);
   badge.className = `pend-badge ${vencidos.length ? 'deuda' : (base.length ? '' : 'ok')}`;
   badge.textContent = base.length;
 
   const chips = [
-    { k: 'vencidos', txt: 'Vencidos',          n: vencidos.length, punto: 'rojo' },
-    { k: 'semana',   txt: 'Vence esta semana', n: semana.length,   punto: 'ambar' },
+    { k: 'vencidos', txt: 'Vencidos',   n: vencidos.length, punto: 'rojo' },
+    { k: 'proximos', txt: 'Por vencer', n: proximos.length, punto: 'azul' },
   ];
   filtros.innerHTML = chips.map(c => `
     <button type="button" class="filter-chip pend-chip ${filtroPend === c.k ? 'active' : ''}"
@@ -494,13 +489,12 @@ function renderPendientes() {
 
   const grupos = {
     vencidos: [['vencidos', vencidos]],
-    semana:   [['semana', semana]],
+    proximos: [['proximos', proximos]],
   }[filtroPend] || [['vencidos', vencidos], ['proximos', proximos]];
 
   const TITULOS = {
     vencidos: { punto: 'rojo',  txt: 'Vencidos' },
-    proximos: { punto: 'azul',  txt: 'Próximos vencimientos' },
-    semana:   { punto: 'ambar', txt: 'Vence esta semana' },
+    proximos: { punto: 'azul',  txt: 'Por vencer' },
   };
 
   const visibles = grupos.reduce((n, [, arr]) => n + arr.length, 0);
@@ -511,7 +505,7 @@ function renderPendientes() {
         <p class="pend-empty-title">${base.length
           ? 'Sin resultados para este filtro'
           : (pendientesLejanos
-              ? `Nadie vence en los próximos ${DIAS_AVISO} días`
+              ? 'Nadie está en período de pago'
               : `Sin pendientes en ${nombreMes(mes)}`)}</p>
         <p class="pend-empty-sub">${base.length
           ? 'Probá con otro filtro'
@@ -548,12 +542,13 @@ function rangoVencimiento(a, mesCuota) {
 
   let desde, hasta;
   if (diaAlta <= 10)      { desde = 1;  hasta = 10; }
-  else if (diaAlta <= 20) { desde = 10; hasta = 20; }
-  else                    { desde = 20; hasta = finDeMes; }
+  else if (diaAlta <= 20) { desde = 11; hasta = 20; }
+  else                    { desde = 21; hasta = finDeMes; }
 
   const dd = (n) => String(n).padStart(2, '0');
+  const inicio = `${mes}-${dd(desde)}`;
   const limite = `${mes}-${dd(hasta)}`;
-  return { limite, etiqueta: `${dd(desde)} al ${formatearFecha(limite)}` };
+  return { inicio, limite, etiqueta: `${dd(desde)} al ${formatearFecha(limite)}` };
 }
 
 function listarMeses(meses) {
@@ -802,6 +797,7 @@ async function abrirModalEditarAlumno(id) {
   document.getElementById('alumno-id').value = a.id;
   document.getElementById('alumno-nombre').value = a.nombre || '';
   document.getElementById('alumno-cedula').value = a.cedula || '';
+  document.getElementById('alumno-ruc').value = a.ruc || '';
   document.getElementById('alumno-telefono').value = a.telefono || '';
   document.getElementById('alumno-email').value = a.email || '';
   document.getElementById('alumno-tutor-nombre').value = a.tutor_nombre || '';
@@ -873,6 +869,7 @@ alumnoForm.addEventListener('submit', async (e) => {
   const payload = {
     nombre,
     cedula: document.getElementById('alumno-cedula').value.trim() || null,
+    ruc: document.getElementById('alumno-ruc').value.trim() || null,
     email: document.getElementById('alumno-email').value.trim() || null,
     telefono: document.getElementById('alumno-telefono').value.trim() || null,
     tutor_nombre: document.getElementById('alumno-tutor-nombre').value.trim() || null,
@@ -1341,14 +1338,14 @@ document.getElementById('btn-export').addEventListener('click', async () => {
       views: [{ state: 'frozen', ySplit: 5 }],
     });
 
-    ws.mergeCells('A1:M1');
+    ws.mergeCells('A1:N1');
     const t = ws.getCell('A1');
     t.value = 'Zarpemos · Gestión de Alumnos';
     t.font = { name: 'Inter', size: 22, bold: true, color: { argb: NAVY } };
     t.alignment = { horizontal: 'left', vertical: 'middle' };
     ws.getRow(1).height = 34;
 
-    ws.mergeCells('A2:M2');
+    ws.mergeCells('A2:N2');
     const s = ws.getCell('A2');
     s.value = `Reporte generado el ${new Date().toLocaleDateString('es-PY', { day: '2-digit', month: 'long', year: 'numeric' })}`;
     s.font = { name: 'Inter', size: 10, italic: true, color: { argb: COLOR_MUTED } };
@@ -1358,6 +1355,7 @@ document.getElementById('btn-export').addEventListener('click', async () => {
       { key: 'id',                header: 'ID',            width: 6,  align: 'center' },
       { key: 'nombre',            header: 'Nombre',        width: 32 },
       { key: 'cedula',            header: 'Cédula',        width: 14 },
+      { key: 'ruc',               header: 'RUC',           width: 14 },
       { key: 'email',             header: 'Email',         width: 28 },
       { key: 'telefono',          header: 'Teléfono',      width: 14 },
       { key: 'tutor_nombre',      header: 'Tutor',         width: 22 },
@@ -1389,6 +1387,7 @@ document.getElementById('btn-export').addEventListener('click', async () => {
         id: a.id,
         nombre: a.nombre,
         cedula: a.cedula || '',
+        ruc: a.ruc || '',
         email: a.email || '',
         telefono: a.telefono || '',
         tutor_nombre: a.tutor_nombre || '',
@@ -1416,7 +1415,7 @@ document.getElementById('btn-export').addEventListener('click', async () => {
         cell.border = { bottom: { style: 'hair', color: { argb: 'FFE1E5EF' } } };
       });
 
-      const estadoCell = row.getCell(9);
+      const estadoCell = row.getCell(columns.findIndex(c => c.key === 'estado_label') + 1);
       const isActivo = a.estado === 'activo';
       estadoCell.fill = {
         type: 'pattern', pattern: 'solid',

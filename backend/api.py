@@ -108,6 +108,7 @@ class Alumno(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     nombre: Mapped[str] = mapped_column(String(120), nullable=False)
     cedula: Mapped[Optional[str]] = mapped_column(String(30))
+    ruc: Mapped[Optional[str]] = mapped_column(String(30))
     email: Mapped[Optional[str]] = mapped_column(String(120))
     telefono: Mapped[Optional[str]] = mapped_column(String(30))
     tutor_nombre: Mapped[Optional[str]] = mapped_column(String(120))
@@ -163,6 +164,7 @@ class TokenResponse(BaseModel):
 class AlumnoBase(BaseModel):
     nombre: str = Field(..., min_length=1, max_length=120)
     cedula: Optional[str] = Field(None, max_length=30)
+    ruc: Optional[str] = Field(None, max_length=30)
     email: Optional[str] = Field(None, max_length=120)
     telefono: Optional[str] = Field(None, max_length=30)
     tutor_nombre: Optional[str] = Field(None, max_length=120)
@@ -183,6 +185,7 @@ class AlumnoCreate(AlumnoBase):
 class AlumnoUpdate(BaseModel):
     nombre: Optional[str] = Field(None, min_length=1, max_length=120)
     cedula: Optional[str] = Field(None, max_length=30)
+    ruc: Optional[str] = Field(None, max_length=30)
     email: Optional[str] = Field(None, max_length=120)
     telefono: Optional[str] = Field(None, max_length=30)
     tutor_nombre: Optional[str] = Field(None, max_length=120)
@@ -318,7 +321,7 @@ def _alumno_to_out(a: Alumno, pagos: List[Pago]) -> AlumnoOut:
     ultimo = max(pagos, key=lambda p: p.fecha_pago, default=None) if pagos else None
     return AlumnoOut(
         id=a.id,
-        nombre=a.nombre, cedula=a.cedula,
+        nombre=a.nombre, cedula=a.cedula, ruc=a.ruc,
         email=a.email, telefono=a.telefono,
         tutor_nombre=a.tutor_nombre, tutor_telefono=a.tutor_telefono, tutor_email=a.tutor_email,
         monto_mensual=a.monto_mensual,
@@ -715,6 +718,7 @@ def listar_alumnos(
         filters = [
             func.lower(Alumno.nombre).like(s),
             func.lower(func.coalesce(Alumno.cedula, "")).like(s),
+            func.lower(func.coalesce(Alumno.ruc, "")).like(s),
             func.lower(func.coalesce(Alumno.email, "")).like(s),
             func.lower(func.coalesce(Alumno.telefono, "")).like(s),
         ]
@@ -763,6 +767,7 @@ def crear_alumno(payload: AlumnoCreate, db: Session = Depends(get_db)):
     nuevo = Alumno(
         nombre=payload.nombre.strip(),
         cedula=_strip_none(payload.cedula),
+        ruc=_strip_none(payload.ruc),
         email=_strip_none(payload.email),
         telefono=_strip_none(payload.telefono),
         tutor_nombre=_strip_none(payload.tutor_nombre),
@@ -793,7 +798,7 @@ def actualizar_alumno(alumno_id: int, payload: AlumnoUpdate, db: Session = Depen
         raise HTTPException(status_code=404, detail="Alumno no encontrado")
     data = payload.model_dump(exclude_unset=True)
     for k in (
-        "nombre", "cedula", "email", "telefono",
+        "nombre", "cedula", "ruc", "email", "telefono",
         "tutor_nombre", "tutor_telefono", "tutor_email",
         "motivo_baja", "observaciones",
     ):
