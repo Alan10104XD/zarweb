@@ -1,10 +1,9 @@
 -- ============================================================
---  Esquema de base de datos · Gestión de Alumnos · v2
+--  Esquema de base de datos · Gestión de Alumnos · v4
 --  PostgreSQL 13+
---  Para INSTALACIONES NUEVAS. Si ya tenés datos, usá migration_v2.sql.
+--  Para INSTALACIONES NUEVAS. Si ya tenés datos, aplicá en orden
+--  migration_v2.sql, migration_v3.sql y migrations/*.sql.
 -- ============================================================
-
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- ============================================================
 --  TABLA: administradores
@@ -34,40 +33,44 @@ CREATE TABLE IF NOT EXISTS alumnos (
     tutor_email         VARCHAR(120),
     monto_mensual       NUMERIC(14, 2)  NOT NULL CHECK (monto_mensual > 0),
     estado              VARCHAR(20)     NOT NULL DEFAULT 'activo'
-                        CHECK (estado IN ('activo', 'retirado', 'egresado', 'suspendido')),
+                        CHECK (estado IN ('activo', 'inactivo')),
     fecha_alta          DATE            NOT NULL DEFAULT CURRENT_DATE,
     fecha_baja          DATE,
     motivo_baja         TEXT,
+    observaciones       TEXT,
     creado_en           TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     actualizado_en      TIMESTAMPTZ     NOT NULL DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_alumnos_nombre   ON alumnos(LOWER(nombre));
-CREATE INDEX IF NOT EXISTS idx_alumnos_cedula   ON alumnos(cedula);
-CREATE INDEX IF NOT EXISTS idx_alumnos_estado   ON alumnos(estado);
+CREATE INDEX IF NOT EXISTS idx_alumnos_nombre ON alumnos(LOWER(nombre));
+CREATE INDEX IF NOT EXISTS idx_alumnos_cedula ON alumnos(cedula);
+CREATE INDEX IF NOT EXISTS idx_alumnos_estado ON alumnos(estado);
 
 -- ============================================================
---  TABLA: cuotas
+--  TABLA: pagos
+--  recibo_numero es el correlativo de la boleta: se asigna solo
+--  al insertar y no cambia nunca. recibo_token es el link
+--  público, que se genera recién al abrir la boleta.
 -- ============================================================
-CREATE TABLE IF NOT EXISTS cuotas (
+CREATE SEQUENCE IF NOT EXISTS seq_recibo_numero START 1;
+
+CREATE TABLE IF NOT EXISTS pagos (
     id                  SERIAL          PRIMARY KEY,
     alumno_id           INTEGER         NOT NULL REFERENCES alumnos(id) ON DELETE CASCADE,
-    concepto            VARCHAR(100)    NOT NULL DEFAULT 'Cuota mensual',
-    periodo             VARCHAR(7),     -- YYYY-MM, NULL para conceptos no recurrentes
+    fecha_pago          DATE            NOT NULL DEFAULT CURRENT_DATE,
     monto               NUMERIC(14, 2)  NOT NULL CHECK (monto > 0),
-    fecha_vencimiento   DATE            NOT NULL,
-    pagado              BOOLEAN         NOT NULL DEFAULT FALSE,
-    fecha_pago          DATE,
-    monto_pagado        NUMERIC(14, 2),
+    concepto            VARCHAR(100),
     metodo_pago         VARCHAR(30),
     nota                TEXT,
+    recibo_numero       INTEGER         NOT NULL UNIQUE DEFAULT nextval('seq_recibo_numero'),
+    recibo_token        VARCHAR(64)     UNIQUE,
+    recibo_emitido_en   TIMESTAMPTZ,
     creado_en           TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
-    actualizado_en      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
-    CHECK (periodo IS NULL OR periodo ~ '^[0-9]{4}-(0[1-9]|1[0-2])$')
+    actualizado_en      TIMESTAMPTZ     NOT NULL DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_cuotas_alumno       ON cuotas(alumno_id);
-CREATE INDEX IF NOT EXISTS idx_cuotas_vencimiento  ON cuotas(fecha_vencimiento);
-CREATE INDEX IF NOT EXISTS idx_cuotas_pagado       ON cuotas(pagado);
-CREATE INDEX IF NOT EXISTS idx_cuotas_periodo      ON cuotas(periodo);
+CREATE INDEX IF NOT EXISTS idx_pagos_alumno ON pagos(alumno_id);
+CREATE INDEX IF NOT EXISTS idx_pagos_fecha  ON pagos(fecha_pago);
+
+ALTER SEQUENCE seq_recibo_numero OWNED BY pagos.recibo_numero;
 
 -- ============================================================
 --  TRIGGERS · actualizado_en
@@ -85,25 +88,10 @@ CREATE TRIGGER trg_alumnos_actualizado_en
 BEFORE UPDATE ON alumnos
 FOR EACH ROW EXECUTE FUNCTION fn_set_actualizado_en();
 
-DROP TRIGGER IF EXISTS trg_cuotas_actualizado_en ON cuotas;
-CREATE TRIGGER trg_cuotas_actualizado_en
-BEFORE UPDATE ON cuotas
+DROP TRIGGER IF EXISTS trg_pagos_actualizado_en ON pagos;
+CREATE TRIGGER trg_pagos_actualizado_en
+BEFORE UPDATE ON pagos
 FOR EACH ROW EXECUTE FUNCTION fn_set_actualizado_en();
-
--- ============================================================
---  VISTA: cuotas con estado calculado
--- ============================================================
-CREATE OR REPLACE VIEW v_cuotas_estado AS
-SELECT
-    c.*,
-    (c.fecha_vencimiento - CURRENT_DATE) AS dias_hasta_vencimiento,
-    CASE
-        WHEN c.pagado                                                  THEN 'pagado'
-        WHEN c.fecha_vencimiento <  CURRENT_DATE                       THEN 'vencido'
-        WHEN c.fecha_vencimiento <= CURRENT_DATE + INTERVAL '5 day'    THEN 'proximo'
-        ELSE 'al_dia'
-    END AS estado_pago
-FROM cuotas c;
 
 -- ============================================================
 --  USUARIO ADMIN INICIAL  (clave: admin123 — cambiar en producción)

@@ -94,6 +94,8 @@ const api = {
   crearPago(alumnoId, d)    { return this.request(`/api/alumnos/${alumnoId}/pagos`, { method: 'POST', body: JSON.stringify(d) }); },
   actualizarPago(id, d)     { return this.request(`/api/pagos/${id}`, { method: 'PUT', body: JSON.stringify(d) }); },
   eliminarPago(id)          { return this.request(`/api/pagos/${id}`, { method: 'DELETE' }); },
+
+  obtenerBoleta(pagoId)     { return this.request(`/api/pagos/${pagoId}/boleta`); },
 };
 
 function parseFecha(str) {
@@ -162,20 +164,30 @@ const LABEL_METODO = {
   otro: 'Otro',
 };
 
-function showToast(message, type = 'success') {
+// `accion` es opcional: { label, onClick }. Sirve para encadenar el paso
+// siguiente sin sacar al operador de donde está (ej. ver la boleta recién
+// generada). El toast con acción dura un poco más para dar tiempo a tocarla.
+function showToast(message, type = 'success', accion = null) {
   const container = document.getElementById('toast-container');
   const toast = document.createElement('div');
   toast.className = `toast ${type}`;
   toast.innerHTML = `
     <p>${escapeHtml(message)}</p>
+    ${accion ? `<button class="toast-action">${escapeHtml(accion.label)}</button>` : ''}
     <button class="toast-close" aria-label="Cerrar">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
       </svg>
     </button>`;
   toast.querySelector('.toast-close').addEventListener('click', () => toast.remove());
+  if (accion) {
+    toast.querySelector('.toast-action').addEventListener('click', () => {
+      toast.remove();
+      accion.onClick();
+    });
+  }
   container.appendChild(toast);
-  setTimeout(() => toast.remove(), 3500);
+  setTimeout(() => toast.remove(), accion ? 8000 : 3500);
 }
 
 const loginForm = document.getElementById('login-form');
@@ -291,7 +303,6 @@ function render() {
       <table class="alumnos-table">
         <thead>
           <tr>
-            <th>ID</th>
             <th>Alumno</th>
             <th>Contacto</th>
             <th class="text-right">Cuota</th>
@@ -328,7 +339,6 @@ function renderFila(a) {
 
   return `
     <tr>
-      <td class="td-id">#${String(a.id).padStart(3, '0')}</td>
       <td>
         <p class="td-name">${escapeHtml(a.nombre)}</p>
         ${a.cedula ? `<p class="td-sub">${escapeHtml(a.cedula)}</p>` : ''}
@@ -940,6 +950,8 @@ function renderPagos(pagos) {
 
   list.innerHTML = pagos.map(renderItemPago).join('');
 
+  list.querySelectorAll('[data-pago-action="boleta"]').forEach(b =>
+    b.addEventListener('click', () => abrirModalBoleta(parseInt(b.dataset.id, 10))));
   list.querySelectorAll('[data-pago-action="edit"]').forEach(b =>
     b.addEventListener('click', () => abrirModalEditarPago(parseInt(b.dataset.id, 10))));
   list.querySelectorAll('[data-pago-action="delete"]').forEach(b =>
@@ -958,6 +970,7 @@ function renderItemPago(p) {
           <p class="cuota-meta">
             <span>${formatearFecha(p.fecha_pago)}</span>
             ${metodo ? `<span>${escapeHtml(metodo)}</span>` : ''}
+            <span class="cuota-recibo">Recibo N° ${numeroRecibo(p)}</span>
           </p>
           ${p.nota ? `<p class="cuota-nota">${escapeHtml(p.nota)}</p>` : ''}
         </div>
@@ -966,6 +979,7 @@ function renderItemPago(p) {
         </div>
       </div>
       <div class="cuota-actions">
+        <button class="btn btn-secondary btn-sm btn-plain" data-pago-action="boleta" data-id="${p.id}">Ver boleta</button>
         <button class="icon-btn" data-pago-action="edit" data-id="${p.id}" title="Editar" aria-label="Editar">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
         </button>
@@ -1091,8 +1105,9 @@ pagoForm.addEventListener('submit', async (e) => {
   btn.disabled = true; btn.textContent = 'Guardando…';
   try {
     if (editandoPagoId == null) {
-      await api.crearPago(pagoAlumnoId, payload);
-      showToast('Pago registrado', 'success');
+      const creado = await api.crearPago(pagoAlumnoId, payload);
+      showToast('Pago registrado', 'success',
+                { label: 'Ver boleta', onClick: () => abrirModalBoleta(creado.id) });
     } else {
       await api.actualizarPago(editandoPagoId, payload);
       showToast('Pago actualizado', 'success');
@@ -1105,6 +1120,135 @@ pagoForm.addEventListener('submit', async (e) => {
   } finally {
     btn.disabled = false; btn.textContent = orig;
   }
+});
+
+// ============================================================
+//   BOLETAS
+// ============================================================
+// La boleta la arma el backend: una sola plantilla sirve para el link
+// público y para esta vista. Acá se muestra con srcdoc en un iframe —
+// como hereda el origen de la página, se puede imprimir desde el panel.
+const boletaModal = document.getElementById('boleta-modal');
+const boletaFrame = document.getElementById('boleta-frame');
+
+let boletaActual = null;
+
+function numeroRecibo(p) {
+  if (p.recibo_numero == null) return '—';
+  return String(p.recibo_numero).padStart(7, '0');
+}
+
+async function abrirModalBoleta(pagoId) {
+  boletaActual = null;
+  boletaModal.classList.remove('hidden');
+  boletaFrame.classList.add('hidden');
+  boletaFrame.removeAttribute('srcdoc');
+  document.getElementById('boleta-cargando').classList.remove('hidden');
+  document.getElementById('boleta-title').textContent = 'Generando boleta…';
+  document.getElementById('boleta-eyebrow').textContent = 'Boleta de pago';
+  document.getElementById('boleta-hint').textContent = '';
+  ['boleta-print', 'boleta-copy', 'boleta-wa'].forEach(k => {
+    document.getElementById(k).disabled = true;
+  });
+
+  try {
+    const b = await api.obtenerBoleta(pagoId);
+    boletaActual = b;
+
+    boletaFrame.srcdoc = b.html;
+    boletaFrame.classList.remove('hidden');
+    document.getElementById('boleta-cargando').classList.add('hidden');
+    document.getElementById('boleta-title').textContent = b.alumno.nombre;
+    document.getElementById('boleta-eyebrow').textContent = `Recibo N° ${b.numero}`;
+
+    const tel = telefonoRecordatorio(b.alumno);
+    document.getElementById('boleta-print').disabled = false;
+    document.getElementById('boleta-copy').disabled = false;
+    document.getElementById('boleta-wa').disabled = !tel;
+    document.getElementById('boleta-hint').textContent = tel
+      ? `Se envía el link de la boleta al ${tel}${(b.alumno.telefono || '').trim() ? '' : ' (tutor)'}.`
+      : 'Sin teléfono cargado: podés copiar el link y mandarlo por otro medio.';
+  } catch (err) {
+    showToast(err.message, 'error');
+    cerrarModalBoleta();
+  }
+}
+
+function cerrarModalBoleta() {
+  boletaModal.classList.add('hidden');
+  boletaFrame.removeAttribute('srcdoc');
+  boletaActual = null;
+}
+
+document.getElementById('boleta-close').addEventListener('click', cerrarModalBoleta);
+boletaModal.addEventListener('click', (e) => { if (e.target === boletaModal) cerrarModalBoleta(); });
+
+// Imprime el contenido del iframe, no la página: sale solo la boleta, con el
+// diseño A4 que trae su propio CSS. Desde el diálogo se guarda en PDF.
+document.getElementById('boleta-print').addEventListener('click', () => {
+  const w = boletaFrame.contentWindow;
+  if (!w) { showToast('La boleta todavía se está cargando', 'error'); return; }
+  w.focus();
+  w.print();
+});
+
+document.getElementById('boleta-copy').addEventListener('click', async () => {
+  if (!boletaActual) return;
+  const url = boletaActual.url;
+  try {
+    await navigator.clipboard.writeText(url);
+    showToast('Link de la boleta copiado');
+  } catch (_) {
+    const ta = document.createElement('textarea');
+    ta.value = url;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    ta.remove();
+    showToast(ok ? 'Link de la boleta copiado' : `No se pudo copiar. El link es: ${url}`,
+              ok ? 'success' : 'error');
+  }
+});
+
+function textoBoleta(b) {
+  const nombre = (b.alumno.nombre || '').trim().split(/\s+/)[0] || '';
+  // formatearMonto separa "Gs." del número con un espacio duro (U+00A0), que en
+  // la URL termina como %C2%A0; se pasa a espacio normal para que viaje limpio.
+  const importe = formatearMonto(b.monto).replace(/ /g, ' ');
+  return `Hola ${nombre}, te enviamos el comprobante de tu pago de ${importe} `
+       + `recibido el ${formatearFecha(b.fecha_pago)}. `
+       + `Recibo N° ${b.numero}: ${b.url}`;
+}
+
+// Igual que el recordatorio: wa.me abre el chat con el mensaje redactado y el
+// envío lo confirma la persona desde WhatsApp.
+document.getElementById('boleta-wa').addEventListener('click', () => {
+  if (!boletaActual) return;
+  const b = boletaActual;
+
+  const tel = telefonoRecordatorio(b.alumno);
+  if (!tel) { showToast(`${b.alumno.nombre} no tiene teléfono cargado`, 'error'); return; }
+
+  const numero = normalizarTelefono(tel);
+  if (!numero) {
+    showToast(`El teléfono de ${b.alumno.nombre} («${tel}») no es un número válido`, 'error');
+    return;
+  }
+
+  const ventana = window.open(
+    `https://wa.me/${numero}?text=${encodeURIComponent(textoBoleta(b))}`,
+    '_blank', 'noopener');
+
+  if (!ventana) {
+    showToast('El navegador bloqueó la ventana. Permití las ventanas emergentes.', 'error');
+    return;
+  }
+
+  const destinatario = (b.alumno.telefono || '').trim() ? '' : ' (tutor)';
+  showToast(`WhatsApp abierto para ${b.alumno.nombre}${destinatario}. Falta tocar "Enviar".`);
 });
 
 function pedirEliminarAlumno(id) {
@@ -1308,7 +1452,8 @@ document.getElementById('btn-export').addEventListener('click', async () => {
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   cerrarMenusPendientes();
-  if (!pagoFormModal.classList.contains('hidden')) cerrarModalPagoForm();
+  if (!boletaModal.classList.contains('hidden')) cerrarModalBoleta();
+  else if (!pagoFormModal.classList.contains('hidden')) cerrarModalPagoForm();
   else if (!confirmModal.classList.contains('hidden')) cerrarConfirm();
   else if (!alumnoModal.classList.contains('hidden')) cerrarModalAlumno();
   else if (!pagosModal.classList.contains('hidden')) cerrarModalPagos();
