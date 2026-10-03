@@ -2,25 +2,30 @@
 Gestión de Alumnos · API v3 (simplificada)
 - Alumnos con estado binario activo/inactivo y datos de contacto
 - Pagos como registros simples agregados manualmente por el administrador
-- Compatible con Python 3.8+
+- Boletas (recibos internos) de cada pago, con link público por token
+
+Compatible con Python 3.8+
 
 Ejecutar:
     uvicorn api:app --reload --port 8001
 """
 
+import html as html_lib
+import secrets
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Dict, List, Literal, Optional, Tuple
 
-from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import (
-    Boolean, Date, DateTime, ForeignKey, Numeric, String, Text,
+    Boolean, Date, DateTime, ForeignKey, Integer, Numeric, Sequence, String, Text,
     create_engine, func, or_,
 )
 from sqlalchemy.orm import (
@@ -37,6 +42,17 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 480
     CORS_ORIGINS: str = "http://localhost:5500,http://127.0.0.1:5500"
+
+    # ---- Datos que encabezan las boletas de pago -------------------
+    # TODO: reemplazar por los datos reales en el .env de producción.
+    EMPRESA_NOMBRE: str = "Zarpemos"
+    EMPRESA_RUC: str = ""
+    EMPRESA_DIRECCION: str = ""
+    EMPRESA_TELEFONO: str = ""
+    EMPRESA_EMAIL: str = ""
+    EMPRESA_LOGO_URL: str = "https://zarpemos.online/assets/images/logo.jpg"
+    # Base del link público de la boleta. Vacío = se deduce del request.
+    PUBLIC_BASE_URL: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True, extra="ignore")
 
@@ -92,6 +108,7 @@ class Alumno(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     nombre: Mapped[str] = mapped_column(String(120), nullable=False)
     cedula: Mapped[Optional[str]] = mapped_column(String(30))
+    ruc: Mapped[Optional[str]] = mapped_column(String(30))
     email: Mapped[Optional[str]] = mapped_column(String(120))
     telefono: Mapped[Optional[str]] = mapped_column(String(30))
     tutor_nombre: Mapped[Optional[str]] = mapped_column(String(120))
@@ -118,6 +135,15 @@ class Pago(Base):
     concepto: Mapped[Optional[str]] = mapped_column(String(100))
     metodo_pago: Mapped[Optional[str]] = mapped_column(String(30))
     nota: Mapped[Optional[str]] = mapped_column(Text)
+    # Correlativo de la boleta: lo asigna la secuencia al insertar y no cambia
+    # nunca, aunque después se borren pagos.
+    recibo_numero: Mapped[int] = mapped_column(
+        Integer, Sequence("seq_recibo_numero"), server_default=func.nextval("seq_recibo_numero"),
+        nullable=False, unique=True,
+    )
+    # Token del link público; se genera recién la primera vez que se abre la boleta.
+    recibo_token: Mapped[Optional[str]] = mapped_column(String(64), unique=True)
+    recibo_emitido_en: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     actualizado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
@@ -138,6 +164,7 @@ class TokenResponse(BaseModel):
 class AlumnoBase(BaseModel):
     nombre: str = Field(..., min_length=1, max_length=120)
     cedula: Optional[str] = Field(None, max_length=30)
+    ruc: Optional[str] = Field(None, max_length=30)
     email: Optional[str] = Field(None, max_length=120)
     telefono: Optional[str] = Field(None, max_length=30)
     tutor_nombre: Optional[str] = Field(None, max_length=120)
@@ -158,6 +185,7 @@ class AlumnoCreate(AlumnoBase):
 class AlumnoUpdate(BaseModel):
     nombre: Optional[str] = Field(None, min_length=1, max_length=120)
     cedula: Optional[str] = Field(None, max_length=30)
+    ruc: Optional[str] = Field(None, max_length=30)
     email: Optional[str] = Field(None, max_length=120)
     telefono: Optional[str] = Field(None, max_length=30)
     tutor_nombre: Optional[str] = Field(None, max_length=120)
@@ -207,8 +235,28 @@ class PagoOut(PagoBase):
     model_config = ConfigDict(from_attributes=True)
     id: int
     alumno_id: int
+    recibo_numero: int
     creado_en: datetime
     actualizado_en: datetime
+
+
+class BoletaAlumnoOut(BaseModel):
+    """Lo mínimo para que el panel arme el mensaje de envío."""
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    nombre: str
+    telefono: Optional[str]
+    tutor_telefono: Optional[str]
+
+
+class BoletaOut(BaseModel):
+    pago_id: int
+    numero: str
+    url: str
+    html: str
+    monto: Decimal
+    fecha_pago: date
+    alumno: BoletaAlumnoOut
 
 
 # ============================================================
@@ -273,7 +321,7 @@ def _alumno_to_out(a: Alumno, pagos: List[Pago]) -> AlumnoOut:
     ultimo = max(pagos, key=lambda p: p.fecha_pago, default=None) if pagos else None
     return AlumnoOut(
         id=a.id,
-        nombre=a.nombre, cedula=a.cedula,
+        nombre=a.nombre, cedula=a.cedula, ruc=a.ruc,
         email=a.email, telefono=a.telefono,
         tutor_nombre=a.tutor_nombre, tutor_telefono=a.tutor_telefono, tutor_email=a.tutor_email,
         monto_mensual=a.monto_mensual,
@@ -289,12 +337,336 @@ def _alumno_to_out(a: Alumno, pagos: List[Pago]) -> AlumnoOut:
 
 
 # ============================================================
+#   BOLETAS DE PAGO
+# ============================================================
+_UNIDADES = (
+    "cero", "uno", "dos", "tres", "cuatro", "cinco", "seis", "siete", "ocho", "nueve",
+    "diez", "once", "doce", "trece", "catorce", "quince", "dieciséis", "diecisiete",
+    "dieciocho", "diecinueve", "veinte", "veintiuno", "veintidós", "veintitrés",
+    "veinticuatro", "veinticinco", "veintiséis", "veintisiete", "veintiocho", "veintinueve",
+)
+_DECENAS = (
+    "", "", "veinte", "treinta", "cuarenta", "cincuenta",
+    "sesenta", "setenta", "ochenta", "noventa",
+)
+_CENTENAS = (
+    "", "ciento", "doscientos", "trescientos", "cuatrocientos", "quinientos",
+    "seiscientos", "setecientos", "ochocientos", "novecientos",
+)
+
+
+def _tres_cifras(n: int) -> str:
+    """0-999 en letras. 0 devuelve cadena vacía (no aporta nada al número)."""
+    if n == 0:
+        return ""
+    if n == 100:
+        return "cien"
+    partes = []
+    centenas, resto = divmod(n, 100)
+    if centenas:
+        partes.append(_CENTENAS[centenas])
+    if resto < 30:
+        if resto:
+            partes.append(_UNIDADES[resto])
+    else:
+        decenas, unidades = divmod(resto, 10)
+        partes.append(_DECENAS[decenas] if unidades == 0
+                      else "{} y {}".format(_DECENAS[decenas], _UNIDADES[unidades]))
+    return " ".join(partes)
+
+
+def _apocopar(texto: str) -> str:
+    """"uno" → "un" cuando precede a mil/millón: veintiún mil, treinta y un mil."""
+    if texto == "uno":
+        return "un"
+    if texto.endswith("veintiuno"):
+        return texto[:-len("veintiuno")] + "veintiún"
+    if texto.endswith(" uno"):
+        return texto[:-len(" uno")] + " un"
+    return texto
+
+
+def numero_a_letras(n: int) -> str:
+    n = int(n)
+    if n < 0:
+        return "menos " + numero_a_letras(-n)
+    if n == 0:
+        return "cero"
+    if n < 1000:
+        return _tres_cifras(n)
+    if n < 1_000_000:
+        miles, resto = divmod(n, 1000)
+        cabeza = "mil" if miles == 1 else _apocopar(_tres_cifras(miles)) + " mil"
+        return cabeza if resto == 0 else "{} {}".format(cabeza, numero_a_letras(resto))
+    if n < 1_000_000_000_000:
+        millones, resto = divmod(n, 1_000_000)
+        cabeza = ("un millón" if millones == 1
+                  else _apocopar(numero_a_letras(millones)) + " millones")
+        return cabeza if resto == 0 else "{} {}".format(cabeza, numero_a_letras(resto))
+    billones, resto = divmod(n, 1_000_000_000_000)
+    cabeza = ("un billón" if billones == 1
+              else _apocopar(numero_a_letras(billones)) + " billones")
+    return cabeza if resto == 0 else "{} {}".format(cabeza, numero_a_letras(resto))
+
+
+def monto_en_letras(monto: Decimal) -> str:
+    """Como se lee al pie del ticket: SETECIENTOS CINCUENTA MIL GS."""
+    entero = int(monto)
+    centavos = int((Decimal(monto) - entero) * 100)
+    texto = _apocopar(numero_a_letras(entero)).upper()
+    if centavos:
+        texto += " CON {:02d}/100".format(centavos)
+    return texto + " GS."
+
+
+def _fmt_num(monto: Decimal) -> str:
+    """Importe sin prefijo, como va en las columnas del ticket: 750.000"""
+    entero = int(Decimal(monto).quantize(Decimal("1")))
+    return "{:,}".format(entero).replace(",", ".")
+
+
+def _fmt_fecha(d: date) -> str:
+    return d.strftime("%d/%m/%Y") if d else "—"
+
+
+LABEL_METODO = {
+    "efectivo": "Efectivo",
+    "transferencia": "Transferencia",
+    "tarjeta": "Tarjeta",
+    "otro": "Otro",
+}
+
+
+def numero_recibo(p: Pago) -> str:
+    return "{:07d}".format(p.recibo_numero)
+
+
+def base_publica(request: Request) -> str:
+    """Base del link de la boleta: la configurada o, si no hay, la del request."""
+    return (settings.PUBLIC_BASE_URL or str(request.base_url)).rstrip("/")
+
+
+def url_boleta(request: Request, token: str) -> str:
+    return "{}/boleta/{}".format(base_publica(request), token)
+
+
+def asegurar_token_recibo(db: Session, p: Pago) -> str:
+    """El token se crea recién cuando se abre la boleta por primera vez."""
+    if not p.recibo_token:
+        p.recibo_token = secrets.token_urlsafe(24)
+        p.recibo_emitido_en = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(p)
+    return p.recibo_token
+
+
+def _e(v: Optional[str]) -> str:
+    return html_lib.escape(v or "")
+
+
+def _dato(etiqueta: str, valor: Optional[str]) -> str:
+    """Línea "Etiqueta: valor" del encabezado. Se omite si no hay dato."""
+    if not valor:
+        return ""
+    return '<p class="dato"><span class="etq">{}:</span> {}</p>'.format(_e(etiqueta), _e(valor))
+
+
+# Paraguay quedó fijo en UTC-3 desde 2024 (sin horario de verano). Se resuelve
+# con un offset y no con zoneinfo, que no existe en el Python 3.8 del servidor.
+TZ_PY = timezone(timedelta(hours=-3))
+
+
+def _fmt_fecha_hora(dt: datetime) -> str:
+    return dt.astimezone(TZ_PY).strftime("%d/%m/%Y %H:%M")
+
+
+TICKET_CSS = """
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #eceef4;
+    color: #111;
+    font-family: "Courier New", Courier, ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    line-height: 1.45;
+    padding: 20px 10px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .barra { width: 302px; margin: 0 auto 14px; }
+  .barra button {
+    width: 100%; font: inherit; font-weight: 700; cursor: pointer;
+    background: #27448c; color: #fff; border: none;
+    padding: 11px 14px; border-radius: 6px; letter-spacing: 0.4px;
+  }
+  .barra button:hover { background: #1d3470; }
+
+  .ticket {
+    width: 302px; margin: 0 auto; background: #fff;
+    padding: 20px 18px;
+    box-shadow: 0 10px 28px -16px rgba(17,17,17,0.5);
+  }
+
+  .tipo {
+    text-align: center; font-size: 11px; letter-spacing: 0.6px;
+    color: #777; text-transform: uppercase;
+  }
+  .empresa {
+    text-align: center; font-size: 17px; font-weight: 700;
+    letter-spacing: 0.5px; margin-top: 3px; text-transform: uppercase;
+  }
+  .puntos { width: 76px; margin: 9px auto; border-top: 1px dotted #999; }
+  .centro { text-align: center; }
+
+  .bloque { margin-top: 14px; }
+  .dato { margin-top: 2px; word-break: break-word; }
+  .dato .etq { color: #555; }
+
+  .regla { margin: 12px 0 8px; border-top: 1px dashed #aaa; }
+
+  .fila { display: flex; justify-content: space-between; gap: 10px; }
+  .fila .num { white-space: nowrap; }
+  .cabecera { color: #555; }
+  .cabecera .num { text-decoration: underline; }
+  .concepto { margin-top: 6px; text-transform: uppercase; word-break: break-word; }
+
+  .total {
+    margin-top: 8px; font-size: 15px; font-weight: 700;
+    display: flex; justify-content: space-between; gap: 10px;
+  }
+  .letras {
+    margin-top: 6px; font-size: 11px; line-height: 1.4;
+    word-break: break-word;
+  }
+  .nota { margin-top: 10px; font-size: 11px; color: #444; word-break: break-word; }
+
+  .gracias {
+    margin-top: 20px; text-align: center; font-weight: 700;
+    letter-spacing: 0.4px; line-height: 1.4;
+  }
+  .pie {
+    margin-top: 14px; text-align: center; font-size: 9.5px;
+    color: #777; line-height: 1.5; word-break: break-all;
+  }
+
+  @media print {
+    /* Rollo de 80 mm y alto libre; en A4 sale la misma tira, arriba. */
+    @page { size: 80mm auto; margin: 4mm; }
+    body { background: #fff; padding: 0; }
+    .barra { display: none !important; }
+    .ticket { width: auto; padding: 0; box-shadow: none; }
+  }
+"""
+
+
+def render_boleta_html(a: Alumno, p: Pago, url: str, embed: bool = False) -> str:
+    """Plantilla única del ticket: la usan el link público y el modal del panel."""
+    emitido = p.recibo_emitido_en or datetime.now(timezone.utc)
+    importe = _fmt_num(p.monto)
+    # La forma de pago va como una fila más, igual que el "Efectivo" de un
+    # ticket de caja. Si nadie la cargó, no se inventa una línea.
+    metodo = ""
+    if p.metodo_pago:
+        metodo = '<div class="fila"><span>{}</span><span class="num">{}</span></div>'.format(
+            _e(LABEL_METODO.get(p.metodo_pago, p.metodo_pago)), _e(importe))
+
+    encabezado = "".join(
+        '<p class="centro">{}</p>'.format(_e(x))
+        for x in (
+            "TEL: {}".format(settings.EMPRESA_TELEFONO) if settings.EMPRESA_TELEFONO else "",
+            settings.EMPRESA_DIRECCION,
+            "RUC: {}".format(settings.EMPRESA_RUC) if settings.EMPRESA_RUC else "",
+            settings.EMPRESA_EMAIL,
+        )
+        if x
+    )
+
+    datos = "".join([
+        _dato("Fecha/Hora", _fmt_fecha_hora(emitido)),
+        _dato("Recibo N°", numero_recibo(p)),
+        _dato("Alumno", a.nombre),
+        _dato("Cédula", a.cedula),
+        _dato("Responsable", a.tutor_nombre),
+    ])
+
+    return """<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Recibo N° {numero} · {empresa}</title>
+<style>{css}</style>
+</head>
+<body>
+{barra}
+<div class="ticket">
+
+  <p class="tipo">Ticket de uso interno</p>
+  <p class="empresa">{empresa}</p>
+  <div class="puntos"></div>
+  {encabezado}
+
+  <div class="bloque">
+    {datos}
+  </div>
+
+  <div class="regla"></div>
+
+  <div class="fila cabecera">
+    <span>Detalle</span>
+    <span class="num">Total</span>
+  </div>
+  <p class="concepto">{concepto}</p>
+  <div class="fila">
+    <span>Pago del {fecha_pago}</span>
+    <span class="num">{importe}</span>
+  </div>
+
+  <div class="regla"></div>
+
+  {metodo}
+  <div class="total">
+    <span>TOTAL GS:</span>
+    <span class="num">{importe}</span>
+  </div>
+  <p class="letras">{letras}</p>
+  {nota}
+
+  <p class="gracias">***GRACIAS POR ELEGIRNOS***</p>
+
+  <p class="pie">
+    Comprobante interno · No válido como documento tributario<br>
+    {url}
+  </p>
+
+</div>
+</body>
+</html>""".format(
+        css=TICKET_CSS,
+        barra="" if embed else (
+            '<div class="barra"><button type="button" onclick="window.print()">'
+            'Imprimir o guardar en PDF</button></div>'
+        ),
+        empresa=_e(settings.EMPRESA_NOMBRE),
+        encabezado=encabezado,
+        numero=numero_recibo(p),
+        datos=datos,
+        concepto=_e(p.concepto or "Cuota mensual"),
+        fecha_pago=_fmt_fecha(p.fecha_pago),
+        importe=_e(importe),
+        metodo=metodo,
+        letras=_e(monto_en_letras(p.monto)),
+        nota='<p class="nota">Nota: {}</p>'.format(_e(p.nota)) if p.nota else "",
+        url=_e(url),
+    )
+
+
+# ============================================================
 #   APP
 # ============================================================
 app = FastAPI(
     title="Gestión de Alumnos · API",
-    description="Panel administrativo de alumnos y pagos.",
-    version="3.0.0",
+    description="Panel administrativo de alumnos, pagos y boletas.",
+    version="3.1.0",
 )
 app.add_middleware(
     CORSMiddleware,
@@ -350,6 +722,7 @@ def listar_alumnos(
         filters = [
             func.lower(Alumno.nombre).like(s),
             func.lower(func.coalesce(Alumno.cedula, "")).like(s),
+            func.lower(func.coalesce(Alumno.ruc, "")).like(s),
             func.lower(func.coalesce(Alumno.email, "")).like(s),
             func.lower(func.coalesce(Alumno.telefono, "")).like(s),
         ]
@@ -398,6 +771,7 @@ def crear_alumno(payload: AlumnoCreate, db: Session = Depends(get_db)):
     nuevo = Alumno(
         nombre=payload.nombre.strip(),
         cedula=_strip_none(payload.cedula),
+        ruc=_strip_none(payload.ruc),
         email=_strip_none(payload.email),
         telefono=_strip_none(payload.telefono),
         tutor_nombre=_strip_none(payload.tutor_nombre),
@@ -428,7 +802,7 @@ def actualizar_alumno(alumno_id: int, payload: AlumnoUpdate, db: Session = Depen
         raise HTTPException(status_code=404, detail="Alumno no encontrado")
     data = payload.model_dump(exclude_unset=True)
     for k in (
-        "nombre", "cedula", "email", "telefono",
+        "nombre", "cedula", "ruc", "email", "telefono",
         "tutor_nombre", "tutor_telefono", "tutor_email",
         "motivo_baja", "observaciones",
     ):
@@ -537,3 +911,54 @@ def eliminar_pago(pago_id: int, db: Session = Depends(get_db)):
     db.delete(p)
     db.commit()
     return None
+
+
+# ============================================================
+#   BOLETAS
+# ============================================================
+@app.get(
+    "/api/pagos/{pago_id}/boleta",
+    response_model=BoletaOut,
+    tags=["boletas"],
+    dependencies=[Depends(get_current_admin)],
+)
+def obtener_boleta(pago_id: int, request: Request, db: Session = Depends(get_db)):
+    """Boleta lista para mostrar en el panel, con el link público para compartir."""
+    p = db.get(Pago, pago_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="Pago no encontrado")
+    a = db.get(Alumno, p.alumno_id)
+    if not a:
+        raise HTTPException(status_code=404, detail="Alumno no encontrado")
+
+    token = asegurar_token_recibo(db, p)
+    url = url_boleta(request, token)
+    return BoletaOut(
+        pago_id=p.id,
+        numero=numero_recibo(p),
+        url=url,
+        html=render_boleta_html(a, p, url, embed=True),
+        monto=p.monto,
+        fecha_pago=p.fecha_pago,
+        alumno=BoletaAlumnoOut.model_validate(a),
+    )
+
+
+@app.get("/boleta/{token}", response_class=HTMLResponse, tags=["boletas"])
+def boleta_publica(token: str, request: Request, db: Session = Depends(get_db)):
+    """Link que se le pasa al alumno. Sin sesión: el token es la credencial."""
+    p = db.query(Pago).filter(Pago.recibo_token == token).first()
+    if not p:
+        raise HTTPException(status_code=404, detail="Boleta no encontrada")
+    a = db.get(Alumno, p.alumno_id)
+    if not a:
+        raise HTTPException(status_code=404, detail="Boleta no encontrada")
+
+    html = render_boleta_html(a, p, url_boleta(request, token))
+    return HTMLResponse(
+        content=html,
+        headers={
+            "X-Robots-Tag": "noindex, nofollow",
+            "Cache-Control": "private, no-store",
+        },
+    )
