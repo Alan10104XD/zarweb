@@ -1,25 +1,12 @@
 -- ============================================================
---  Esquema de base de datos · Gestión de Alumnos
+--  Esquema de base de datos · Gestión de Alumnos · v4
 --  PostgreSQL 13+
+--  Para INSTALACIONES NUEVAS. Si ya tenés datos, aplicá en orden
+--  migration_v2.sql, migration_v3.sql y migrations/*.sql.
 -- ============================================================
-
--- Crear la base de datos (ejecutar como superusuario, fuera de psql en \c)
--- CREATE DATABASE gestion_alumnos
---   WITH ENCODING 'UTF8'
---        LC_COLLATE = 'Spanish_Paraguay.1252'
---        LC_CTYPE   = 'Spanish_Paraguay.1252'
---        TEMPLATE   = template0;
-
--- Conectar:  \c gestion_alumnos
-
--- ============================================================
---  EXTENSIONES
--- ============================================================
-CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- gen_random_uuid, crypt
 
 -- ============================================================
 --  TABLA: administradores
---  Usuarios que pueden iniciar sesión en el panel
 -- ============================================================
 CREATE TABLE IF NOT EXISTS administradores (
     id              SERIAL          PRIMARY KEY,
@@ -30,29 +17,64 @@ CREATE TABLE IF NOT EXISTS administradores (
     creado_en       TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     ultimo_acceso   TIMESTAMPTZ
 );
-
 CREATE INDEX IF NOT EXISTS idx_admin_usuario ON administradores(usuario);
 
 -- ============================================================
 --  TABLA: alumnos
---  Registro de alumnos y su estado de pago
 -- ============================================================
 CREATE TABLE IF NOT EXISTS alumnos (
     id                  SERIAL          PRIMARY KEY,
     nombre              VARCHAR(120)    NOT NULL,
     cedula              VARCHAR(30),
-    monto               NUMERIC(14, 2)  NOT NULL CHECK (monto > 0),
-    fecha_vencimiento   DATE            NOT NULL,
+    ruc                 VARCHAR(30),
+    email               VARCHAR(120),
+    telefono            VARCHAR(30),
+    tutor_nombre        VARCHAR(120),
+    tutor_telefono      VARCHAR(30),
+    tutor_email         VARCHAR(120),
+    monto_mensual       NUMERIC(14, 2)  NOT NULL CHECK (monto_mensual > 0),
+    estado              VARCHAR(20)     NOT NULL DEFAULT 'activo'
+                        CHECK (estado IN ('activo', 'inactivo')),
+    fecha_alta          DATE            NOT NULL DEFAULT CURRENT_DATE,
+    fecha_baja          DATE,
+    motivo_baja         TEXT,
+    observaciones       TEXT,
     creado_en           TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     actualizado_en      TIMESTAMPTZ     NOT NULL DEFAULT NOW()
 );
-
-CREATE INDEX IF NOT EXISTS idx_alumnos_fecha_venc ON alumnos(fecha_vencimiento);
-CREATE INDEX IF NOT EXISTS idx_alumnos_nombre     ON alumnos(LOWER(nombre));
-CREATE INDEX IF NOT EXISTS idx_alumnos_cedula     ON alumnos(cedula);
+CREATE INDEX IF NOT EXISTS idx_alumnos_nombre ON alumnos(LOWER(nombre));
+CREATE INDEX IF NOT EXISTS idx_alumnos_cedula ON alumnos(cedula);
+CREATE INDEX IF NOT EXISTS idx_alumnos_estado ON alumnos(estado);
 
 -- ============================================================
---  TRIGGER: mantener actualizado_en al día
+--  TABLA: pagos
+--  recibo_numero es el correlativo de la boleta: se asigna solo
+--  al insertar y no cambia nunca. recibo_token es el link
+--  público, que se genera recién al abrir la boleta.
+-- ============================================================
+CREATE SEQUENCE IF NOT EXISTS seq_recibo_numero START 1;
+
+CREATE TABLE IF NOT EXISTS pagos (
+    id                  SERIAL          PRIMARY KEY,
+    alumno_id           INTEGER         NOT NULL REFERENCES alumnos(id) ON DELETE CASCADE,
+    fecha_pago          DATE            NOT NULL DEFAULT CURRENT_DATE,
+    monto               NUMERIC(14, 2)  NOT NULL CHECK (monto > 0),
+    concepto            VARCHAR(100),
+    metodo_pago         VARCHAR(30),
+    nota                TEXT,
+    recibo_numero       INTEGER         NOT NULL UNIQUE DEFAULT nextval('seq_recibo_numero'),
+    recibo_token        VARCHAR(64)     UNIQUE,
+    recibo_emitido_en   TIMESTAMPTZ,
+    creado_en           TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    actualizado_en      TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_pagos_alumno ON pagos(alumno_id);
+CREATE INDEX IF NOT EXISTS idx_pagos_fecha  ON pagos(fecha_pago);
+
+ALTER SEQUENCE seq_recibo_numero OWNED BY pagos.recibo_numero;
+
+-- ============================================================
+--  TRIGGERS · actualizado_en
 -- ============================================================
 CREATE OR REPLACE FUNCTION fn_set_actualizado_en()
 RETURNS TRIGGER AS $$
@@ -65,41 +87,20 @@ $$ LANGUAGE plpgsql;
 DROP TRIGGER IF EXISTS trg_alumnos_actualizado_en ON alumnos;
 CREATE TRIGGER trg_alumnos_actualizado_en
 BEFORE UPDATE ON alumnos
-FOR EACH ROW
-EXECUTE FUNCTION fn_set_actualizado_en();
+FOR EACH ROW EXECUTE FUNCTION fn_set_actualizado_en();
+
+DROP TRIGGER IF EXISTS trg_pagos_actualizado_en ON pagos;
+CREATE TRIGGER trg_pagos_actualizado_en
+BEFORE UPDATE ON pagos
+FOR EACH ROW EXECUTE FUNCTION fn_set_actualizado_en();
 
 -- ============================================================
---  VISTA: alumnos con estado calculado
---  Útil para reportes y consultas externas
+--  USUARIO ADMIN INICIAL  (clave: admin123 — cambiar en producción)
 -- ============================================================
-CREATE OR REPLACE VIEW v_alumnos_estado AS
-SELECT
-    a.id,
-    a.nombre,
-    a.cedula,
-    a.monto,
-    a.fecha_vencimiento,
-    a.creado_en,
-    a.actualizado_en,
-    (a.fecha_vencimiento - CURRENT_DATE) AS dias_hasta_vencimiento,
-    CASE
-        WHEN a.fecha_vencimiento <  CURRENT_DATE                  THEN 'vencido'
-        WHEN a.fecha_vencimiento <= CURRENT_DATE + INTERVAL '5 day' THEN 'proximo'
-        ELSE 'al_dia'
-    END AS estado
-FROM alumnos a;
-
--- ============================================================
---  USUARIO ADMINISTRADOR INICIAL
---  Repo público: no se versiona ningún hash. Generar el propio con
---    python -c "from passlib.context import CryptContext; \
---               print(CryptContext(schemes=['bcrypt']).hash('TU_CONTRASEÑA'))"
---  y descomentar el INSERT.
--- ============================================================
--- INSERT INTO administradores (usuario, password_hash, nombre)
--- VALUES (
---     'admin',
---     '<HASH_BCRYPT_AQUI>',
---     'Administrador'
--- )
--- ON CONFLICT (usuario) DO NOTHING;
+INSERT INTO administradores (usuario, password_hash, nombre)
+VALUES (
+    'admin',
+    '$2b$12$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW',
+    'Administrador'
+)
+ON CONFLICT (usuario) DO NOTHING;

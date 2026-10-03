@@ -322,12 +322,14 @@ function renderFila(a) {
     : '<span class="text-muted">—</span>';
   const obs = (a.observaciones || '').trim();
 
+  const documentos = [a.cedula, a.ruc && `RUC ${a.ruc}`].filter(Boolean).join(' · ');
+
   return `
     <tr>
       <td class="td-id">#${String(a.id).padStart(3, '0')}</td>
       <td>
         <p class="td-name">${escapeHtml(a.nombre)}</p>
-        ${a.cedula ? `<p class="td-sub">${escapeHtml(a.cedula)}</p>` : ''}
+        ${documentos ? `<p class="td-sub">${escapeHtml(documentos)}</p>` : ''}
         ${obs ? `<p class="td-obs" title="${escapeHtml(obs)}">
           <span>${escapeHtml(obs)}</span>
         </p>` : ''}
@@ -680,6 +682,7 @@ async function abrirModalEditarAlumno(id) {
   document.getElementById('alumno-id').value = a.id;
   document.getElementById('alumno-nombre').value = a.nombre || '';
   document.getElementById('alumno-cedula').value = a.cedula || '';
+  document.getElementById('alumno-ruc').value = a.ruc || '';
   document.getElementById('alumno-telefono').value = a.telefono || '';
   document.getElementById('alumno-email').value = a.email || '';
   document.getElementById('alumno-tutor-nombre').value = a.tutor_nombre || '';
@@ -751,6 +754,7 @@ alumnoForm.addEventListener('submit', async (e) => {
   const payload = {
     nombre,
     cedula: document.getElementById('alumno-cedula').value.trim() || null,
+    ruc: document.getElementById('alumno-ruc').value.trim() || null,
     email: document.getElementById('alumno-email').value.trim() || null,
     telefono: document.getElementById('alumno-telefono').value.trim() || null,
     tutor_nombre: document.getElementById('alumno-tutor-nombre').value.trim() || null,
@@ -1085,14 +1089,14 @@ document.getElementById('btn-export').addEventListener('click', async () => {
       views: [{ state: 'frozen', ySplit: 5 }],
     });
 
-    ws.mergeCells('A1:M1');
+    ws.mergeCells('A1:N1');
     const t = ws.getCell('A1');
     t.value = 'Zarpemos · Gestión de Alumnos';
     t.font = { name: 'Inter', size: 22, bold: true, color: { argb: NAVY } };
     t.alignment = { horizontal: 'left', vertical: 'middle' };
     ws.getRow(1).height = 34;
 
-    ws.mergeCells('A2:M2');
+    ws.mergeCells('A2:N2');
     const s = ws.getCell('A2');
     s.value = `Reporte generado el ${new Date().toLocaleDateString('es-PY', { day: '2-digit', month: 'long', year: 'numeric' })}`;
     s.font = { name: 'Inter', size: 10, italic: true, color: { argb: COLOR_MUTED } };
@@ -1102,6 +1106,7 @@ document.getElementById('btn-export').addEventListener('click', async () => {
       { key: 'id',                header: 'ID',            width: 6,  align: 'center' },
       { key: 'nombre',            header: 'Nombre',        width: 32 },
       { key: 'cedula',            header: 'Cédula',        width: 14 },
+      { key: 'ruc',               header: 'RUC',           width: 14 },
       { key: 'email',             header: 'Email',         width: 28 },
       { key: 'telefono',          header: 'Teléfono',      width: 14 },
       { key: 'tutor_nombre',      header: 'Tutor',         width: 22 },
@@ -1133,6 +1138,7 @@ document.getElementById('btn-export').addEventListener('click', async () => {
         id: a.id,
         nombre: a.nombre,
         cedula: a.cedula || '',
+        ruc: a.ruc || '',
         email: a.email || '',
         telefono: a.telefono || '',
         tutor_nombre: a.tutor_nombre || '',
@@ -1160,7 +1166,7 @@ document.getElementById('btn-export').addEventListener('click', async () => {
         cell.border = { bottom: { style: 'hair', color: { argb: 'FFE1E5EF' } } };
       });
 
-      const estadoCell = row.getCell(9);
+      const estadoCell = row.getCell(columns.findIndex(c => c.key === 'estado_label') + 1);
       const isActivo = a.estado === 'activo';
       estadoCell.fill = {
         type: 'pattern', pattern: 'solid',

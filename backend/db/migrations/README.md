@@ -7,3 +7,4 @@ anterior. Cada cambio de esquema hay que aplicarlo a mano allá.
 | Fecha | Cambio | Estado |
 |---|---|---|
 | 2026-08-07 | `observaciones TEXT` en `alumnos` | Aplicada (BD + `api.py` + servicio reiniciado) |
+| 2026-10-03 | `ruc VARCHAR(30)` en `alumnos` | Aplicada en BD (falta `api.py`) |
